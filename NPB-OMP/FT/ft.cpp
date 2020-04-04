@@ -12,6 +12,7 @@
             Júnior Löff <loffjh@gmail.com>
 
 --------------------------------------------------------------------*/
+#include "argo.hpp"
 
 #include <iostream>
 #include "npb-CPP.hpp"
@@ -20,21 +21,21 @@
 #include "global.hpp"
 
 /* function declarations */
-static void evolve(dcomplex ***u0, dcomplex ***u1, int t, int ***indexmap, int d[3]);
-static void compute_initial_conditions(dcomplex ***u0, int d[3]);
+static void evolve(dcomplex *u0, dcomplex *u1, int t, int *indexmap, int d[3]);
+static void compute_initial_conditions(dcomplex *u0, int d[3]);
 static void ipow46(double a, int exponent, double *result);
 static void setup(void);
-static void compute_indexmap(int ***indexmap, int d[3]);
+static void compute_indexmap(int *indexmap, int d[3]);
 static void print_timers(void);
-static void fft(int dir, dcomplex ***x1, dcomplex ***x2);
-static void cffts1(int is, int d[3], dcomplex ***x, dcomplex ***xout, dcomplex y0[NX][FFTBLOCKPAD], dcomplex y1[NX][FFTBLOCKPAD]);
-static void cffts2(int is, int d[3], dcomplex ***x, dcomplex ***xout, dcomplex y0[NX][FFTBLOCKPAD], dcomplex y1[NX][FFTBLOCKPAD]);
-static void cffts3(int is, int d[3], dcomplex ***x, dcomplex ***xout, dcomplex y0[NX][FFTBLOCKPAD], dcomplex y1[NX][FFTBLOCKPAD]);
+static void fft(int dir, dcomplex *x1, dcomplex *x2);
+static void cffts1(int is, int d[3], dcomplex *x, dcomplex *xout, dcomplex y0[NX][FFTBLOCKPAD], dcomplex y1[NX][FFTBLOCKPAD]);
+static void cffts2(int is, int d[3], dcomplex *x, dcomplex *xout, dcomplex y0[NX][FFTBLOCKPAD], dcomplex y1[NX][FFTBLOCKPAD]);
+static void cffts3(int is, int d[3], dcomplex *x, dcomplex *xout, dcomplex y0[NX][FFTBLOCKPAD], dcomplex y1[NX][FFTBLOCKPAD]);
 static void fft_init (int n);
 static void cfftz (int is, int m, int n, dcomplex x[NX][FFTBLOCKPAD], dcomplex y[NX][FFTBLOCKPAD]);
 static void fftz2 (int is, int l, int m, int n, int ny, int ny1, dcomplex u[NX], dcomplex x[NX][FFTBLOCKPAD], dcomplex y[NX][FFTBLOCKPAD]);
 static int ilog2(int n);
-static void checksum(int i, dcomplex ***u1, int d[3]);
+static void checksum(int i, dcomplex *u1, int d[3]);
 static void verify (int d1, int d2, int d3, int nt, boolean *verified, char *class_npb);
 
 /*--------------------------------------------------------------------
@@ -45,6 +46,11 @@ int main(int argc, char **argv) {
 
     /*c-------------------------------------------------------------------
     c-------------------------------------------------------------------*/
+
+    argo::init(10*1024*1024*1024UL);
+
+    workrank = argo::node_id();
+    numtasks = argo::number_of_nodes();
 
     int i;
 
@@ -74,37 +80,15 @@ int main(int argc, char **argv) {
     /*static dcomplex pad3[3];*/
     //static int indexmap[NZ][NY][NX];
     
-    dcomplex ***u0 = new dcomplex **[NZ];
-    for (int i = 0; i < NZ; i++)
-    {
-        u0[i] = new dcomplex *[NY];
-        for (int j = 0; j < NY; j++)
-            u0[i][j] = new dcomplex [NX];
-    }
+    //dcomplex *u0 = new dcomplex[NZ * NY * NZ];
+    //dcomplex *u1 = new dcomplex[NZ * NY * NZ];
+    //dcomplex *u2 = new dcomplex[NZ * NY * NZ];
+    //int *indexmap = new int[NZ * NY * NZ];
 
-    dcomplex ***u1 = new dcomplex **[NZ];
-    for (int i = 0; i < NZ; i++)
-    {
-        u1[i] = new dcomplex *[NY];
-        for (int j = 0; j < NY; j++)
-            u1[i][j] = new dcomplex [NX];
-    }
-
-    dcomplex ***u2 = new dcomplex **[NZ];
-    for (int i = 0; i < NZ; i++)
-    {
-        u2[i] = new dcomplex *[NY];
-        for (int j = 0; j < NY; j++)
-            u2[i][j] = new dcomplex [NX];
-    }
-
-    int ***indexmap = new int **[NZ];
-    for (int i = 0; i < NZ; i++)
-    {
-        indexmap[i] = new int *[NY];
-        for (int j = 0; j < NY; j++)
-            indexmap[i][j] = new int [NX];
-    }
+    dcomplex *u0 = argo::conew_array<dcomplex>(NZ * NY * NZ);
+    dcomplex *u1 = argo::conew_array<dcomplex>(NZ * NY * NZ);
+    dcomplex *u2 = argo::conew_array<dcomplex>(NZ * NY * NZ);
+    int *indexmap = argo::conew_array<int>(NZ * NY * NZ);
 
     int iter;
     int nthreads = 1;
@@ -221,33 +205,17 @@ int main(int argc, char **argv) {
     (char*)NPBVERSION, (char*)COMPILETIME, (char*)CS1, (char*)CS2, (char*)CS3, (char*)CS4, (char*)CS5, (char*)CS6, (char*)CS7);
     if (TIMERS_ENABLED == TRUE) print_timers();
 
-    for (int i = 0; i < NZ; i++) {
-        for (int j = 0; j < NY; j++)
-            delete[] u0[i][j];
-        delete[] u0[i];
-    }
-    delete[] u0;
+    //delete[] u0;
+    //delete[] u1;
+    //delete[] u2;
+    //delete[] indexmap;
 
-    for (int i = 0; i < NZ; i++) {
-        for (int j = 0; j < NY; j++)
-            delete[] u1[i][j];
-        delete[] u1[i];
-    }
-    delete[] u1;
+    argo::codelete_array(u0);
+    argo::codelete_array(u1);
+    argo::codelete_array(u2);
+    argo::codelete_array(indexmap);
 
-    for (int i = 0; i < NZ; i++) {
-        for (int j = 0; j < NY; j++)
-            delete[] u2[i][j];
-        delete[] u2[i];
-    }
-    delete[] u2;
-
-    for (int i = 0; i < NZ; i++) {
-        for (int j = 0; j < NY; j++)
-            delete[] indexmap[i][j];
-        delete[] indexmap[i];
-    }
-    delete[] indexmap;
+    argo::finalize();
 
     return 0;
 }
@@ -255,7 +223,7 @@ int main(int argc, char **argv) {
 /*--------------------------------------------------------------------
 c-------------------------------------------------------------------*/
 
-static void evolve(dcomplex ***u0, dcomplex ***u1, int t, int ***indexmap, int d[3]) {
+static void evolve(dcomplex *u0, dcomplex *u1, int t, int *indexmap, int d[3]) {
 
     /*--------------------------------------------------------------------
     c-------------------------------------------------------------------*/
@@ -270,7 +238,7 @@ static void evolve(dcomplex ***u0, dcomplex ***u1, int t, int ***indexmap, int d
     for (k = 0; k < d[2]; k++) {
         for (j = 0; j < d[1]; j++) {
             for (i = 0; i < d[0]; i++) {
-                crmul(u1[k][j][i], u0[k][j][i], ex[t*indexmap[k][j][i]]);
+                crmul(u1[i + j * NY + k * NY * NZ], u0[i + j * NY + k * NY * NZ], ex[t*indexmap[i + j * NY + k * NY * NZ]]);
             }
         }
     }
@@ -279,7 +247,7 @@ static void evolve(dcomplex ***u0, dcomplex ***u1, int t, int ***indexmap, int d
 /*--------------------------------------------------------------------
 c-------------------------------------------------------------------*/
 
-static void compute_initial_conditions(dcomplex ***u0, int d[3]) {
+static void compute_initial_conditions(dcomplex *u0, int d[3]) {
 
     /*--------------------------------------------------------------------
     c-------------------------------------------------------------------*/
@@ -325,8 +293,8 @@ static void compute_initial_conditions(dcomplex ***u0, int d[3]) {
             t = 1;
             for (j = 0; j < dims[0][1]; j++)
                 for (i = 0; i < NX; i++) {
-                    u0[k][j][i].real = tmp[t++];
-                    u0[k][j][i].imag = tmp[t++];
+                    u0[i + j * NY + k * NY * NZ].real = tmp[t++];
+                    u0[i + j * NY + k * NY * NZ].imag = tmp[t++];
                 }
 
             //if (k != dims[0][2]) /*dummy = */randlc(&start, an);
@@ -439,7 +407,7 @@ static void setup(void) {
 /*--------------------------------------------------------------------
 c-------------------------------------------------------------------*/
 
-static void compute_indexmap(int ***indexmap, int d[3]) {
+static void compute_indexmap(int *indexmap, int d[3]) {
 
     /*--------------------------------------------------------------------
     c-------------------------------------------------------------------*/
@@ -472,7 +440,7 @@ static void compute_indexmap(int ***indexmap, int d[3]) {
                 ij2 = jj*jj+ii2;
                 for (k = 0; k < dims[2][2]; k++) {
                     kk = (k+1+zstart[2]-2+NZ/2)%NZ - NZ/2;
-                    indexmap[k][j][i] = kk*kk+ij2;
+                    indexmap[i + j * NY + k * NY * NZ] = kk*kk+ij2;
                 }
             }
         }
@@ -518,7 +486,7 @@ static void print_timers(void) {
 /*--------------------------------------------------------------------
 c-------------------------------------------------------------------*/
 
-static void fft(int dir, dcomplex ***x1, dcomplex ***x2) {
+static void fft(int dir, dcomplex *x1, dcomplex *x2) {
 
     /*--------------------------------------------------------------------
     c-------------------------------------------------------------------*/
@@ -548,7 +516,7 @@ static void fft(int dir, dcomplex ***x1, dcomplex ***x2) {
 /*--------------------------------------------------------------------
 c-------------------------------------------------------------------*/
 
-static void cffts1(int is, int d[3], dcomplex ***x, dcomplex ***xout,dcomplex y0[NX][FFTBLOCKPAD],dcomplex y1[NX][FFTBLOCKPAD]) {
+static void cffts1(int is, int d[3], dcomplex *x, dcomplex *xout,dcomplex y0[NX][FFTBLOCKPAD],dcomplex y1[NX][FFTBLOCKPAD]) {
 
     /*--------------------------------------------------------------------
     c-------------------------------------------------------------------*/
@@ -566,8 +534,8 @@ static void cffts1(int is, int d[3], dcomplex ***x, dcomplex ***xout,dcomplex y0
                       if (TIMERS_ENABLED == TRUE) timer_start(T_FFTCOPY); 
             for (j = 0; j < fftblock; j++) {
                 for (i = 0; i < d[0]; i++) {
-                    y0[i][j].real = x[k][j+jj][i].real;
-                    y0[i][j].imag = x[k][j+jj][i].imag;
+                    y0[i][j].real = x[i + (j + jj) * NY + k * NY * NZ].real;
+                    y0[i][j].imag = x[i + (j + jj) * NY + k * NY * NZ].imag;
                 }
             }
                       if (TIMERS_ENABLED == TRUE) timer_stop(T_FFTCOPY); 
@@ -580,8 +548,8 @@ static void cffts1(int is, int d[3], dcomplex ***x, dcomplex ***xout,dcomplex y0
                       if (TIMERS_ENABLED == TRUE) timer_start(T_FFTCOPY); 
             for (j = 0; j < fftblock; j++) {
                 for (i = 0; i < d[0]; i++) {
-                    xout[k][j+jj][i].real = y0[i][j].real;
-                    xout[k][j+jj][i].imag = y0[i][j].imag;
+                    xout[i + (j + jj) * NY + k * NY * NZ].real = y0[i][j].real;
+                    xout[i + (j + jj) * NY + k * NY * NZ].imag = y0[i][j].imag;
                 }
             }
                       if (TIMERS_ENABLED == TRUE) timer_stop(T_FFTCOPY); 
@@ -593,7 +561,7 @@ static void cffts1(int is, int d[3], dcomplex ***x, dcomplex ***xout,dcomplex y0
 /*--------------------------------------------------------------------
 c-------------------------------------------------------------------*/
 
-static void cffts2(int is, int d[3], dcomplex ***x,dcomplex ***xout,dcomplex y0[NX][FFTBLOCKPAD],dcomplex y1[NX][FFTBLOCKPAD]) {
+static void cffts2(int is, int d[3], dcomplex *x,dcomplex *xout,dcomplex y0[NX][FFTBLOCKPAD],dcomplex y1[NX][FFTBLOCKPAD]) {
 
     /*--------------------------------------------------------------------
     c-------------------------------------------------------------------*/
@@ -610,8 +578,8 @@ static void cffts2(int is, int d[3], dcomplex ***x,dcomplex ***xout,dcomplex y0[
             	    if (TIMERS_ENABLED == TRUE) timer_start(T_FFTCOPY); 
             for (j = 0; j < d[1]; j++) {
                 for (i = 0; i < fftblock; i++) {
-                    y0[j][i].real = x[k][j][i+ii].real;
-                    y0[j][i].imag = x[k][j][i+ii].imag;
+                    y0[j][i].real = x[(i + ii) + j * NY + k * NY * NZ].real;
+                    y0[j][i].imag = x[(i + ii) + j * NY + k * NY * NZ].imag;
                 }
             }
             	    if (TIMERS_ENABLED == TRUE) timer_stop(T_FFTCOPY); 
@@ -623,8 +591,8 @@ static void cffts2(int is, int d[3], dcomplex ***x,dcomplex ***xout,dcomplex y0[
                       if (TIMERS_ENABLED == TRUE) timer_start(T_FFTCOPY); 
             for (j = 0; j < d[1]; j++) {
                 for (i = 0; i < fftblock; i++) {
-                xout[k][j][i+ii].real = y0[j][i].real;
-                xout[k][j][i+ii].imag = y0[j][i].imag;
+                xout[(i + ii) + j * NY + k * NY * NZ].real = y0[j][i].real;
+                xout[(i + ii) + j * NY + k * NY * NZ].imag = y0[j][i].imag;
                 }
             }
                    if (TIMERS_ENABLED == TRUE) timer_stop(T_FFTCOPY); 
@@ -635,7 +603,7 @@ static void cffts2(int is, int d[3], dcomplex ***x,dcomplex ***xout,dcomplex y0[
 /*--------------------------------------------------------------------
 c-------------------------------------------------------------------*/
 
-static void cffts3(int is, int d[3], dcomplex ***x,dcomplex ***xout,dcomplex y0[NX][FFTBLOCKPAD], dcomplex y1[NX][FFTBLOCKPAD]) {
+static void cffts3(int is, int d[3], dcomplex *x,dcomplex *xout,dcomplex y0[NX][FFTBLOCKPAD], dcomplex y1[NX][FFTBLOCKPAD]) {
 
     /*--------------------------------------------------------------------
     c-------------------------------------------------------------------*/
@@ -652,8 +620,8 @@ static void cffts3(int is, int d[3], dcomplex ***x,dcomplex ***xout,dcomplex y0[
         	    if (TIMERS_ENABLED == TRUE) timer_start(T_FFTCOPY); 
             for (k = 0; k < d[2]; k++) {
                 for (i = 0; i < fftblock; i++) {
-                    y0[k][i].real = x[k][j][i+ii].real;
-                    y0[k][i].imag = x[k][j][i+ii].imag;
+                    y0[k][i].real = x[(i + ii) + j * NY + k * NY * NZ].real;
+                    y0[k][i].imag = x[(i + ii) + j * NY + k * NY * NZ].imag;
                 }
             }
 
@@ -665,8 +633,8 @@ static void cffts3(int is, int d[3], dcomplex ***x,dcomplex ***xout,dcomplex y0[
                        if (TIMERS_ENABLED == TRUE) timer_start(T_FFTCOPY); 
             for (k = 0; k < d[2]; k++) {
                 for (i = 0; i < fftblock; i++) {
-                    xout[k][j][i+ii].real = y0[k][i].real;
-                    xout[k][j][i+ii].imag = y0[k][i].imag;
+                    xout[(i + ii) + j * NY + k * NY * NZ].real = y0[k][i].real;
+                    xout[(i + ii) + j * NY + k * NY * NZ].imag = y0[k][i].imag;
                 }
             }
                        if (TIMERS_ENABLED == TRUE) timer_stop(T_FFTCOPY); 
@@ -869,7 +837,7 @@ static int ilog2(int n) {
 /*--------------------------------------------------------------------
 c-------------------------------------------------------------------*/
 
-static void checksum(int i, dcomplex ***u1, int d[3]) {
+static void checksum(int i, dcomplex *u1, int d[3]) {
 
     /*--------------------------------------------------------------------
     c-------------------------------------------------------------------*/
@@ -889,7 +857,8 @@ static void checksum(int i, dcomplex ***u1, int d[3]) {
             if (r >= ystart[0] && r <= yend[0]) {
                 s = (5*j)%NZ+1;
                 if (s >= zstart[0] && s <= zend[0]) {
-                    cadd(chk,chk,u1[s-zstart[0]][r-ystart[0]][q-xstart[0]]);
+                    //cadd(chk,chk,u1[s-zstart[0]][r-ystart[0]][q-xstart[0]]);
+                    cadd(chk,chk,u1[(q-xstart[0]) + (r-ystart[0]) * NY + (s-zstart[0]) * NY * NZ]);
                 }
             }
         }

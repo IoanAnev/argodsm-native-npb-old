@@ -26,6 +26,9 @@ c  512 for class C.
 /* COMMON block: blockinfo */
 int fftblock;
 int fftblockpad;
+
+int workrank;
+int numtasks;
       
 /*
 c we need a bunch of logic to keep track of how
