@@ -20,21 +20,21 @@
 #include "global.hpp"
 
 /* function declarations */
-static void evolve(dcomplex u0[NZ][NY][NX], dcomplex u1[NZ][NY][NX], int t, int indexmap[NZ][NY][NX], int d[3]);
-static void compute_initial_conditions(dcomplex u0[NZ][NY][NX], int d[3]);
+static void evolve(dcomplex ***u0, dcomplex ***u1, int t, int ***indexmap, int d[3]);
+static void compute_initial_conditions(dcomplex ***u0, int d[3]);
 static void ipow46(double a, int exponent, double *result);
 static void setup(void);
-static void compute_indexmap(int indexmap[NZ][NY][NX], int d[3]);
+static void compute_indexmap(int ***indexmap, int d[3]);
 static void print_timers(void);
-static void fft(int dir, dcomplex x1[NZ][NY][NX], dcomplex x2[NZ][NY][NX]);
-static void cffts1(int is, int d[3], dcomplex x[NZ][NY][NX], dcomplex xout[NZ][NY][NX], dcomplex y0[NX][FFTBLOCKPAD], dcomplex y1[NX][FFTBLOCKPAD]);
-static void cffts2(int is, int d[3], dcomplex x[NZ][NY][NX], dcomplex xout[NZ][NY][NX], dcomplex y0[NX][FFTBLOCKPAD], dcomplex y1[NX][FFTBLOCKPAD]);
-static void cffts3(int is, int d[3], dcomplex x[NZ][NY][NX], dcomplex xout[NZ][NY][NX], dcomplex y0[NX][FFTBLOCKPAD], dcomplex y1[NX][FFTBLOCKPAD]);
+static void fft(int dir, dcomplex ***x1, dcomplex ***x2);
+static void cffts1(int is, int d[3], dcomplex ***x, dcomplex ***xout, dcomplex y0[NX][FFTBLOCKPAD], dcomplex y1[NX][FFTBLOCKPAD]);
+static void cffts2(int is, int d[3], dcomplex ***x, dcomplex ***xout, dcomplex y0[NX][FFTBLOCKPAD], dcomplex y1[NX][FFTBLOCKPAD]);
+static void cffts3(int is, int d[3], dcomplex ***x, dcomplex ***xout, dcomplex y0[NX][FFTBLOCKPAD], dcomplex y1[NX][FFTBLOCKPAD]);
 static void fft_init (int n);
 static void cfftz (int is, int m, int n, dcomplex x[NX][FFTBLOCKPAD], dcomplex y[NX][FFTBLOCKPAD]);
 static void fftz2 (int is, int l, int m, int n, int ny, int ny1, dcomplex u[NX], dcomplex x[NX][FFTBLOCKPAD], dcomplex y[NX][FFTBLOCKPAD]);
 static int ilog2(int n);
-static void checksum(int i, dcomplex u1[NZ][NY][NX], int d[3]);
+static void checksum(int i, dcomplex ***u1, int d[3]);
 static void verify (int d1, int d2, int d3, int nt, boolean *verified, char *class_npb);
 
 /*--------------------------------------------------------------------
@@ -66,13 +66,45 @@ int main(int argc, char **argv) {
     c referenced directly anywhere else. Padding is to avoid accidental 
     c cache problems, since all array sizes are powers of two.
     c-------------------------------------------------------------------*/
-    static dcomplex u0[NZ][NY][NX];
+    //static dcomplex u0[NZ][NY][NX];
     /*static dcomplex pad1[3];*/
-    static dcomplex u1[NZ][NY][NX];
+    //static dcomplex u1[NZ][NY][NX];
     /*static dcomplex pad2[3];*/
-    static dcomplex u2[NZ][NY][NX];
+    //static dcomplex u2[NZ][NY][NX];
     /*static dcomplex pad3[3];*/
-    static int indexmap[NZ][NY][NX];
+    //static int indexmap[NZ][NY][NX];
+    
+    dcomplex ***u0 = new dcomplex **[NZ];
+    for (int i = 0; i < NZ; i++)
+    {
+        u0[i] = new dcomplex *[NY];
+        for (int j = 0; j < NY; j++)
+            u0[i][j] = new dcomplex [NX];
+    }
+
+    dcomplex ***u1 = new dcomplex **[NZ];
+    for (int i = 0; i < NZ; i++)
+    {
+        u1[i] = new dcomplex *[NY];
+        for (int j = 0; j < NY; j++)
+            u1[i][j] = new dcomplex [NX];
+    }
+
+    dcomplex ***u2 = new dcomplex **[NZ];
+    for (int i = 0; i < NZ; i++)
+    {
+        u2[i] = new dcomplex *[NY];
+        for (int j = 0; j < NY; j++)
+            u2[i][j] = new dcomplex [NX];
+    }
+
+    int ***indexmap = new int **[NZ];
+    for (int i = 0; i < NZ; i++)
+    {
+        indexmap[i] = new int *[NY];
+        for (int j = 0; j < NY; j++)
+            indexmap[i][j] = new int [NX];
+    }
 
     int iter;
     int nthreads = 1;
@@ -189,13 +221,41 @@ int main(int argc, char **argv) {
     (char*)NPBVERSION, (char*)COMPILETIME, (char*)CS1, (char*)CS2, (char*)CS3, (char*)CS4, (char*)CS5, (char*)CS6, (char*)CS7);
     if (TIMERS_ENABLED == TRUE) print_timers();
 
+    for (int i = 0; i < NZ; i++) {
+        for (int j = 0; j < NY; j++)
+            delete[] u0[i][j];
+        delete[] u0[i];
+    }
+    delete[] u0;
+
+    for (int i = 0; i < NZ; i++) {
+        for (int j = 0; j < NY; j++)
+            delete[] u1[i][j];
+        delete[] u1[i];
+    }
+    delete[] u1;
+
+    for (int i = 0; i < NZ; i++) {
+        for (int j = 0; j < NY; j++)
+            delete[] u2[i][j];
+        delete[] u2[i];
+    }
+    delete[] u2;
+
+    for (int i = 0; i < NZ; i++) {
+        for (int j = 0; j < NY; j++)
+            delete[] indexmap[i][j];
+        delete[] indexmap[i];
+    }
+    delete[] indexmap;
+
     return 0;
 }
 
 /*--------------------------------------------------------------------
 c-------------------------------------------------------------------*/
 
-static void evolve(dcomplex u0[NZ][NY][NX], dcomplex u1[NZ][NY][NX], int t, int indexmap[NZ][NY][NX], int d[3]) {
+static void evolve(dcomplex ***u0, dcomplex ***u1, int t, int ***indexmap, int d[3]) {
 
     /*--------------------------------------------------------------------
     c-------------------------------------------------------------------*/
@@ -219,7 +279,7 @@ static void evolve(dcomplex u0[NZ][NY][NX], dcomplex u1[NZ][NY][NX], int t, int 
 /*--------------------------------------------------------------------
 c-------------------------------------------------------------------*/
 
-static void compute_initial_conditions(dcomplex u0[NZ][NY][NX], int d[3]) {
+static void compute_initial_conditions(dcomplex ***u0, int d[3]) {
 
     /*--------------------------------------------------------------------
     c-------------------------------------------------------------------*/
@@ -379,7 +439,7 @@ static void setup(void) {
 /*--------------------------------------------------------------------
 c-------------------------------------------------------------------*/
 
-static void compute_indexmap(int indexmap[NZ][NY][NX], int d[3]) {
+static void compute_indexmap(int ***indexmap, int d[3]) {
 
     /*--------------------------------------------------------------------
     c-------------------------------------------------------------------*/
@@ -458,7 +518,7 @@ static void print_timers(void) {
 /*--------------------------------------------------------------------
 c-------------------------------------------------------------------*/
 
-static void fft(int dir, dcomplex x1[NZ][NY][NX], dcomplex x2[NZ][NY][NX]) {
+static void fft(int dir, dcomplex ***x1, dcomplex ***x2) {
 
     /*--------------------------------------------------------------------
     c-------------------------------------------------------------------*/
@@ -488,7 +548,7 @@ static void fft(int dir, dcomplex x1[NZ][NY][NX], dcomplex x2[NZ][NY][NX]) {
 /*--------------------------------------------------------------------
 c-------------------------------------------------------------------*/
 
-static void cffts1(int is, int d[3], dcomplex x[NZ][NY][NX], dcomplex xout[NZ][NY][NX],dcomplex y0[NX][FFTBLOCKPAD],dcomplex y1[NX][FFTBLOCKPAD]) {
+static void cffts1(int is, int d[3], dcomplex ***x, dcomplex ***xout,dcomplex y0[NX][FFTBLOCKPAD],dcomplex y1[NX][FFTBLOCKPAD]) {
 
     /*--------------------------------------------------------------------
     c-------------------------------------------------------------------*/
@@ -533,7 +593,7 @@ static void cffts1(int is, int d[3], dcomplex x[NZ][NY][NX], dcomplex xout[NZ][N
 /*--------------------------------------------------------------------
 c-------------------------------------------------------------------*/
 
-static void cffts2(int is, int d[3], dcomplex x[NZ][NY][NX],dcomplex xout[NZ][NY][NX],dcomplex y0[NX][FFTBLOCKPAD],dcomplex y1[NX][FFTBLOCKPAD]) {
+static void cffts2(int is, int d[3], dcomplex ***x,dcomplex ***xout,dcomplex y0[NX][FFTBLOCKPAD],dcomplex y1[NX][FFTBLOCKPAD]) {
 
     /*--------------------------------------------------------------------
     c-------------------------------------------------------------------*/
@@ -575,7 +635,7 @@ static void cffts2(int is, int d[3], dcomplex x[NZ][NY][NX],dcomplex xout[NZ][NY
 /*--------------------------------------------------------------------
 c-------------------------------------------------------------------*/
 
-static void cffts3(int is, int d[3], dcomplex x[NZ][NY][NX],dcomplex xout[NZ][NY][NX],dcomplex y0[NX][FFTBLOCKPAD], dcomplex y1[NX][FFTBLOCKPAD]) {
+static void cffts3(int is, int d[3], dcomplex ***x,dcomplex ***xout,dcomplex y0[NX][FFTBLOCKPAD], dcomplex y1[NX][FFTBLOCKPAD]) {
 
     /*--------------------------------------------------------------------
     c-------------------------------------------------------------------*/
@@ -809,7 +869,7 @@ static int ilog2(int n) {
 /*--------------------------------------------------------------------
 c-------------------------------------------------------------------*/
 
-static void checksum(int i, dcomplex u1[NZ][NY][NX], int d[3]) {
+static void checksum(int i, dcomplex ***u1, int d[3]) {
 
     /*--------------------------------------------------------------------
     c-------------------------------------------------------------------*/
