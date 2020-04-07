@@ -13,7 +13,7 @@
 
 --------------------------------------------------------------------*/
 
-#include <mpi.h>
+/* argodsm header   */
 #include "argo.hpp"
 
 #include <iostream>
@@ -39,7 +39,6 @@ static void fftz2 (int is, int l, int m, int n, int ny, int ny1, dcomplex u[NX],
 static int ilog2(int n);
 static void checksum(int i, dcomplex *u1, int d[3]);
 static void verify (int d1, int d2, int d3, int nt, boolean *verified, char *class_npb);
-static void sync();
 
 /*--------------------------------------------------------------------
 c FT benchmark
@@ -73,17 +72,15 @@ int main(int argc, char **argv) {
 
     int i;
     int iter;
-    int nthreads = 1;
-    double total_time, mflops;
-    boolean verified;
     char class_npb;
+    boolean verified;
+    double total_time, mflops;
 
     workrank = argo::node_id();
+    nthreads = omp_get_max_threads();
     numtasks = argo::number_of_nodes();
 
-    lock_flag = argo::conew_<bool>(false);
-	lock = new argo::globallock::global_tas_lock(lock_flag);
-
+    isum = argo::conew_array<dcomplex>(numtasks);
     sums = argo::conew_array<dcomplex>(NITER_DEFAULT+1);
     int *indexmap = argo::conew_array<int>(NZ * NY * NX);
     dcomplex *u0 = argo::conew_array<dcomplex>(NZ * NY * NX);
@@ -102,16 +99,13 @@ int main(int argc, char **argv) {
     setup();
 
     compute_indexmap(indexmap, dims[2]);
-    //printf("Process: %i, ~ 1 ~\n", workrank);
     compute_initial_conditions(u1, dims[0]);
-    //printf("Process: %i, ~ 2 ~\n", workrank);
     fft_init (dims[0][0]);
     
     #pragma omp parallel
     {
         fft(1, u1, u0);
     }
-    //printf("Process: %i, ~ 3 ~\n", workrank);
 
     /*--------------------------------------------------------------------
     c Start over from the beginning. Note that all operations must
@@ -126,70 +120,64 @@ int main(int argc, char **argv) {
     if (TIMERS_ENABLED == TRUE) timer_start(T_SETUP);
 
     compute_indexmap(indexmap, dims[2]);
-    //printf("Process: %i, ~ 4 ~\n", workrank);
     compute_initial_conditions(u1, dims[0]);
-    //printf("Process: %i, ~ 5 ~\n", workrank);
     fft_init (dims[0][0]);
 
     #pragma omp parallel private(iter) firstprivate(niter)
     {
-        //if (TIMERS_ENABLED == TRUE) {
-        //    #pragma omp master
-        //    timer_stop(T_SETUP);
-        //}
-        //if (TIMERS_ENABLED == TRUE) {
-        //    #pragma omp master   
-        //    timer_start(T_FFT);
-        //}
+        if (TIMERS_ENABLED == TRUE) {
+            #pragma omp master
+            timer_stop(T_SETUP);
+        }
+        if (TIMERS_ENABLED == TRUE) {
+            #pragma omp master   
+            timer_start(T_FFT);
+        }
 
         fft(1, u1, u0);
-        sync();
-        //printf("Process: %i, ~ 6 ~\n", workrank);
+        argo::barrier(nthreads);
 
-        //if (TIMERS_ENABLED == TRUE) {
-        //    #pragma omp master      
-        //    timer_stop(T_FFT);
-        //}
+        if (TIMERS_ENABLED == TRUE) {
+            #pragma omp master      
+            timer_stop(T_FFT);
+        }
 
         for (iter = 1; iter <= niter; iter++) {
-            //if (TIMERS_ENABLED == TRUE) {
-            //    #pragma omp master      
-            //    timer_start(T_EVOLVE);
-            //}
+            if (TIMERS_ENABLED == TRUE) {
+                #pragma omp master      
+                timer_start(T_EVOLVE);
+            }
 
             evolve(u0, u1, iter, indexmap, dims[0]);
-            sync();
-            //printf("Process: %i, ~ 7 ~\n", workrank);
-
-            //if (TIMERS_ENABLED == TRUE) {
-            //    #pragma omp master      
-            //    timer_stop(T_EVOLVE);
-            //}
-            //if (TIMERS_ENABLED == TRUE) {
-            //    #pragma omp master      
-            //    timer_start(T_FFT);
-            //}
+            argo::barrier(nthreads);
+            
+            if (TIMERS_ENABLED == TRUE) {
+                #pragma omp master      
+                timer_stop(T_EVOLVE);
+            }
+            if (TIMERS_ENABLED == TRUE) {
+                #pragma omp master      
+                timer_start(T_FFT);
+            }
 
             fft(-1, u1, u2);
-            sync();
-            //printf("Process: %i, ~ 8 ~\n", workrank);
+            argo::barrier(nthreads);
 
-            //if (TIMERS_ENABLED == TRUE) {
-            //    #pragma omp master      
-            //    timer_stop(T_FFT);
-            //}
-            //if (TIMERS_ENABLED == TRUE) {
-            //    #pragma omp master      
-            //    timer_start(T_CHECKSUM);
-            //}
+            if (TIMERS_ENABLED == TRUE) {
+                #pragma omp master      
+                timer_stop(T_FFT);
+            }
+            if (TIMERS_ENABLED == TRUE) {
+                #pragma omp master      
+                timer_start(T_CHECKSUM);
+            }
 
             checksum(iter, u2, dims[0]);
-            sync();
 
-            //if (TIMERS_ENABLED == TRUE) {
-            //    #pragma omp master      
-            //    timer_stop(T_CHECKSUM);
-            //}
+            if (TIMERS_ENABLED == TRUE) {
+                #pragma omp master      
+                timer_stop(T_CHECKSUM);
+            }
         }
     }
 
@@ -207,14 +195,12 @@ int main(int argc, char **argv) {
         } else {
             mflops = 0.0;
         }
-        c_print_results((char*)"FT", class_npb, NX, NY, NZ, niter, numtasks, total_time, mflops, (char*)"          floating point", verified, 
+        c_print_results((char*)"FT", class_npb, NX, NY, NZ, niter, numtasks*nthreads, total_time, mflops, (char*)"          floating point", verified, 
         (char*)NPBVERSION, (char*)COMPILETIME, (char*)CS1, (char*)CS2, (char*)CS3, (char*)CS4, (char*)CS5, (char*)CS6, (char*)CS7);
         if (TIMERS_ENABLED == TRUE) print_timers();
     }
 
-    delete lock;
-	argo::codelete_(lock_flag);
-
+    argo::codelete_array(isum);
     argo::codelete_array(sums);
     argo::codelete_array(indexmap);
     argo::codelete_array(u0);
@@ -240,9 +226,9 @@ static void evolve(dcomplex *u0, dcomplex *u1, int t, int *indexmap, int d[3]) {
 
     int i, j, k;
 
-    int chunk = d[2] / numtasks;
-    int beg = workrank * chunk;
-    int end = (workrank != numtasks - 1) ? beg + chunk : d[2];
+    static int chunk = d[2] / numtasks;
+    static int beg = workrank * chunk;
+    static int end = (workrank != numtasks - 1) ? beg + chunk : d[2];
     
     #pragma omp for
     for (k = beg; k < end; k++) {
@@ -294,9 +280,9 @@ static void compute_initial_conditions(dcomplex *u0, int d[3]) {
     c Go through by z planes filling in one square at a time.
     c-------------------------------------------------------------------*/
 
-    int chunk = dims[0][2] / numtasks;
-    int beg = workrank * chunk;
-    int end = (workrank != numtasks - 1) ? beg + chunk : dims[0][2];
+    static int chunk = dims[0][2] / numtasks;
+    static int beg = workrank * chunk;
+    static int end = (workrank != numtasks - 1) ? beg + chunk : dims[0][2];
 
     #pragma omp parallel private(k, i, j, t, x0)
     {
@@ -317,7 +303,7 @@ static void compute_initial_conditions(dcomplex *u0, int d[3]) {
             //if (k != dims[0][2]) /*dummy = */randlc(&start, an);
         }
 
-        //delete[] tmp;
+        delete[] tmp;
     }
 }
 
@@ -452,9 +438,9 @@ static void compute_indexmap(int *indexmap, int d[3]) {
     c mod(i-1+n/2, n) - n/2
     c-------------------------------------------------------------------*/
 
-    int chunk = dims[2][0] / numtasks;
-    int beg = workrank * chunk;
-    int end = (workrank != numtasks - 1) ? beg + chunk : dims[2][0];
+    static int chunk = dims[2][0] / numtasks;
+    static int beg = workrank * chunk;
+    static int end = (workrank != numtasks - 1) ? beg + chunk : dims[2][0];
 
     #pragma omp parallel for private(i, j, k, ii, ii2, jj, ij2, kk)
     for (i = beg; i < end; i++) {
@@ -528,11 +514,11 @@ static void fft(int dir, dcomplex *x1, dcomplex *x2) {
     if (dir == 1) {
         cffts1(1, dims[0], x1, x1, y0, y1);	 /* x1 -> x1 */
         cffts2(1, dims[1], x1, x1, y0, y1);	 /* x1 -> x1 */
-        sync();
+        argo::barrier(nthreads);
         cffts3(1, dims[2], x1, x2, y0, y1);	 /* x1 -> x2 */
     } else {
         cffts3(-1, dims[2], x1, x1, y0, y1); /* x1 -> x1 */
-        sync();
+        argo::barrier(nthreads);
         cffts2(-1, dims[1], x1, x1, y0, y1); /* x1 -> x1 */
         cffts1(-1, dims[0], x1, x2, y0, y1); /* x1 -> x2 */
     }
@@ -554,9 +540,9 @@ static void cffts1(int is, int d[3], dcomplex *x, dcomplex *xout,dcomplex y0[NX]
         logd[i] = ilog2(d[i]);
     }
 
-    int chunk = d[2] / numtasks;
-    int beg = workrank * chunk;
-    int end = (workrank != numtasks - 1) ? beg + chunk : d[2];
+    static int chunk = d[2] / numtasks;
+    static int beg = workrank * chunk;
+    static int end = (workrank != numtasks - 1) ? beg + chunk : d[2];
 
     #pragma omp for
     for (k = beg; k < end; k++) {
@@ -603,9 +589,9 @@ static void cffts2(int is, int d[3], dcomplex *x,dcomplex *xout,dcomplex y0[NX][
         logd[i] = ilog2(d[i]);
     }
 
-    int chunk = d[2] / numtasks;
-    int beg = workrank * chunk;
-    int end = (workrank != numtasks - 1) ? beg + chunk : d[2];
+    static int chunk = d[2] / numtasks;
+    static int beg = workrank * chunk;
+    static int end = (workrank != numtasks - 1) ? beg + chunk : d[2];
 
     #pragma omp for
     for (k = beg; k < end; k++) {
@@ -650,9 +636,9 @@ static void cffts3(int is, int d[3], dcomplex *x,dcomplex *xout,dcomplex y0[NX][
         logd[i] = ilog2(d[i]);
     }
 
-    int chunk = d[1] / numtasks;
-    int beg = workrank * chunk;
-    int end = (workrank != numtasks - 1) ? beg + chunk : d[1];
+    static int chunk = d[1] / numtasks;
+    static int beg = workrank * chunk;
+    static int end = (workrank != numtasks - 1) ? beg + chunk : d[1];
 
     #pragma omp for
     for (j = beg; j < end; j++) {
@@ -892,13 +878,13 @@ static void checksum(int i, dcomplex *u1, int d[3]) {
 
     #pragma omp single
     {
-        dum.real = 0.0;
-        dum.imag = 0.0;
+        isum[workrank].real = 0.0;
+        isum[workrank].imag = 0.0;
     }
     
-    int chunk = 1024 / numtasks;
-    int beg = 1 + workrank * chunk;
-    int end = (workrank != numtasks - 1) ? workrank * chunk + chunk : 1024;
+    static int chunk = 1024 / numtasks;
+    static int beg = 1 + workrank * chunk;
+    static int end = (workrank != numtasks - 1) ? workrank * chunk + chunk : 1024;
 
     #pragma omp for nowait
     for (j = beg; j <= end; j++) {
@@ -908,7 +894,6 @@ static void checksum(int i, dcomplex *u1, int d[3]) {
             if (r >= ystart[0] && r <= yend[0]) {
                 s = (5*j)%NZ+1;
                 if (s >= zstart[0] && s <= zend[0]) {
-                    //cadd(chk,chk,u1[s-zstart[0]][r-ystart[0]][q-xstart[0]]);
                     cadd(chk,chk,u1[at(s-zstart[0], r-ystart[0], q-xstart[0])]);
                 }
             }
@@ -916,28 +901,28 @@ static void checksum(int i, dcomplex *u1, int d[3]) {
     }
     #pragma omp critical
     {
-        dum.real += chk.real;
-        dum.imag += chk.imag;
+        isum[workrank].real += chk.real;
+        isum[workrank].imag += chk.imag;
     }
     #pragma omp barrier
-    
+
     #pragma omp master
     {
-        lock->lock();
-        sums[i].real += dum.real;
-        sums[i].imag += dum.imag;
-        lock->unlock();
         argo::barrier();
-    }
+        
+        if (workrank == 0) {
+            for (j = 0; j < numtasks; j++) {
+                sums[i].real += isum[j].real;
+                sums[i].imag += isum[j].imag;
+            }
 
-    #pragma omp master
-    if (workrank == 0) {
-        /* complex % real */
-        sums[i].real = sums[i].real/(double)(NTOTAL);
-        sums[i].imag = sums[i].imag/(double)(NTOTAL);
+            /* complex % real */
+            sums[i].real = sums[i].real/(double)(NTOTAL);
+            sums[i].imag = sums[i].imag/(double)(NTOTAL);
 
-        printf("T = %5d     Checksum = %22.12e %22.12e\n",
-        i, sums[i].real, sums[i].imag);
+            printf("T = %5d     Checksum = %22.12e %22.12e\n",
+            i, sums[i].real, sums[i].imag);
+        }
     }
 }
 
@@ -1194,10 +1179,4 @@ static void verify (int d1, int d2, int d3, int nt, boolean *verified, char *cla
         printf("Result verification failed\n");
     }
     printf("class_npb = %1c\n", *class_npb);
-}
-
-static void sync() {
-    #pragma omp barrier
-    #pragma omp single
-    argo::barrier();
 }

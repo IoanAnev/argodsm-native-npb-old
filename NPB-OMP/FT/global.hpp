@@ -30,10 +30,7 @@ int fftblockpad;
 /* COMMON block: taskinfo   */
 int workrank;
 int numtasks;
-
-/* COMMON block: evolvelock */
-bool *lock_flag;
-argo::globallock::global_tas_lock *lock;
+int nthreads;
 
 /*
 c we need a bunch of logic to keep track of how
@@ -110,11 +107,12 @@ static dcomplex u[NX];
 
 /* for checksum data */
 
-/* COMMON block: sumcomm    */
-dcomplex *sums; /* sums(0:niter_default) */
-
 /* COMMON block: sumdumm    */
 static dcomplex dum;
+
+/* COMMON block: sumcomm    */
+dcomplex *sums; /* sums(0:niter_default) */
+dcomplex *isum;
 
 /* number of iterations     */
 
