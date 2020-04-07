@@ -15,7 +15,7 @@
 --------------------------------------------------------------------*/
 
 
-
+#include "argo.hpp"
 #include "npbparams.hpp"
 #include <iostream>
 #include <../common/npb-CPP.hpp>
@@ -50,6 +50,22 @@ c   numbers.  MK can be set for convenience on a given system, since it does
 c   not affect the results.
 */
 int main(int argc, char **argv) {
+    argo::init(10*1024*1024*1024UL);
+
+    int workrank = argo::node_id();
+    int numtasks = argo::number_of_nodes();
+
+    bool *lock_flag;
+    argo::globallock::global_tas_lock *lock;
+
+    lock_flag = argo::conew_<bool>(false);
+	lock = new argo::globallock::global_tas_lock(lock_flag);
+
+    double *gsx = argo::conew_<double>(0.0);
+    double *gsy = argo::conew_<double>(0.0);
+    double *ggc = argo::conew_<double>(0.0);
+    double *gq = argo::conew_array<double>(NQ);
+
     double Mops, t1, sx, sy, tm, an, gc;
     double dum[3] = { 1.0, 1.0, 1.0 };
     int np,i, k, nit, k_offset, j;
@@ -64,13 +80,15 @@ int main(int argc, char **argv) {
     c   point print statement (internal file)
     */
 
-    printf("\n\n NAS Parallel Benchmarks 4.0 OpenMP C++ version"" - EP Benchmark\n");
-    printf("\n\n Developed by: Dalvan Griebler <dalvan.griebler@acad.pucrs.br>\n");
-    sprintf(size, "%12.0f", pow(2.0, M+1));
-    for (j = 13; j >= 1; j--) {
-        if (size[j] == '.') size[j] = ' ';
+    if (workrank == 0) {
+        printf("\n\n NAS Parallel Benchmarks 4.0 OpenMP C++ version"" - EP Benchmark\n");
+        printf("\n\n Developed by: Dalvan Griebler <dalvan.griebler@acad.pucrs.br>\n");
+        sprintf(size, "%12.0f", pow(2.0, M+1));
+        for (j = 13; j >= 1; j--) {
+            if (size[j] == '.') size[j] = ' ';
+        }
+        printf(" Number of random numbers generated: %13s\n", size);
     }
-    printf(" Number of random numbers generated: %13s\n", size);
 
     verified = FALSE;
 
@@ -80,6 +98,10 @@ int main(int argc, char **argv) {
     c   divide the total number
     */
     np = NN;
+
+    int chunk = np / numtasks;
+    int beg = 1 + workrank * chunk;
+    int end = (workrank != numtasks - 1) ? workrank * chunk + chunk : np;
 
     /*
     c   Call the random number generator functions and initialize
@@ -135,7 +157,7 @@ int main(int argc, char **argv) {
         for (i = 0; i < NQ; i++) qq[i] = 0.0;
 
         #pragma omp for reduction(+:sx,sy)
-        for (k = 1; k <= np; k++) {
+        for (k = beg; k <= end; k++) {
             kk = k_offset + k;
             t1 = S;
             t2 = an;
@@ -192,58 +214,80 @@ int main(int argc, char **argv) {
         gc = gc + q[i];
     }
 
+    lock->lock();
+    *gsx += sx;
+    *gsy += sy;
+    *ggc += gc;
+    for (i = 0; i <= NQ - 1; i++) gq[i] += q[i];
+    lock->unlock();
+
+    argo::barrier();
+
     timer_stop(1);
     tm = timer_read(1);
 
 
+    if (workrank == 0)
+    {
+        nit = 0;
+        if (M == 24) {
+            if((fabs((*gsx- (-3.247834652034740e3))/-3.247834652034740e3) <= EPSILON) && (fabs((*gsy- (-6.958407078382297e3))/-6.958407078382297e3) <= EPSILON)) {
+                verified = TRUE;
+            }
+        } else if (M == 25) {
+            if ((fabs((*gsx- (-2.863319731645753e3))/-2.863319731645753e3) <= EPSILON) && (fabs((*gsy- (-6.320053679109499e3))/-6.320053679109499e3) <= EPSILON)) {
+                verified = TRUE;
+            }
+        } else if (M == 28) {
+            //if ((fabs((sx- (-4.295875165629892e3))/sx) <= EPSILON) && (fabs((sy- (-1.580732573678431e4))/sy) <= EPSILON)) {
+            if ((fabs((*gsx- (-4.295875165629892e3))/-4.295875165629892e3) <= EPSILON) && (fabs((*gsy- (-1.580732573678431e4))/-1.580732573678431e4) <= EPSILON)) {
+                verified = TRUE;
+            }
+        } else if (M == 30) {
+            if ((fabs((*gsx- (4.033815542441498e4))/4.033815542441498e4) <= EPSILON) && (fabs((*gsy- (-2.660669192809235e4))/-2.660669192809235e4) <= EPSILON)) {
+                verified = TRUE;
+            }
+        } else if (M == 32) {
+            if ((fabs((*gsx- (4.764367927995374e4))/4.764367927995374e4) <= EPSILON) && (fabs((*gsy- (-8.084072988043731e4))/-8.084072988043731e4) <= EPSILON)) {
+                verified = TRUE;
+            }
+        } else if (M == 36) {
+            if ((fabs((*gsx- (1.982481200946593e5))/1.982481200946593e5) <= EPSILON) && (fabs((*gsy- (-1.020596636361769e5))/-1.020596636361769e5) <= EPSILON)) {
+                verified = TRUE;
+            }
+        } else if (M == 40) {
+            if ((fabs((*gsx- (-5.319717441530e5))/-5.319717441530e5) <= EPSILON) && (fabs((*gsy- (-3.688834557731e5))/-3.688834557731e5) <= EPSILON)) {
+                verified = TRUE;
+            }
+        }
 
-    nit = 0;
-    if (M == 24) {
-        if((fabs((sx- (-3.247834652034740e3))/-3.247834652034740e3) <= EPSILON) && (fabs((sy- (-6.958407078382297e3))/-6.958407078382297e3) <= EPSILON)) {
-            verified = TRUE;
+        Mops = pow(2.0, M+1)/tm/1000000.0;
+
+        printf("EP Benchmark Results: \n" "CPU Time = %10.4f\n" "N = 2^%5d\n" "No. Gaussian Pairs = %15.0f\n"
+            "Sums = %25.15e %25.15e\n" "Counts:\n", tm, M, *ggc, *gsx, *gsy);
+        for (i = 0; i  <= NQ-1; i++) {
+            printf("%3d %15.0f\n", i, gq[i]);
         }
-    } else if (M == 25) {
-        if ((fabs((sx- (-2.863319731645753e3))/-2.863319731645753e3) <= EPSILON) && (fabs((sy- (-6.320053679109499e3))/-6.320053679109499e3) <= EPSILON)) {
-            verified = TRUE;
-        }
-    } else if (M == 28) {
-        //if ((fabs((sx- (-4.295875165629892e3))/sx) <= EPSILON) && (fabs((sy- (-1.580732573678431e4))/sy) <= EPSILON)) {
-        if ((fabs((sx- (-4.295875165629892e3))/-4.295875165629892e3) <= EPSILON) && (fabs((sy- (-1.580732573678431e4))/-1.580732573678431e4) <= EPSILON)) {
-            verified = TRUE;
-        }
-    } else if (M == 30) {
-        if ((fabs((sx- (4.033815542441498e4))/4.033815542441498e4) <= EPSILON) && (fabs((sy- (-2.660669192809235e4))/-2.660669192809235e4) <= EPSILON)) {
-            verified = TRUE;
-        }
-    } else if (M == 32) {
-        if ((fabs((sx- (4.764367927995374e4))/4.764367927995374e4) <= EPSILON) && (fabs((sy- (-8.084072988043731e4))/-8.084072988043731e4) <= EPSILON)) {
-            verified = TRUE;
-        }
-    } else if (M == 36) {
-        if ((fabs((sx- (1.982481200946593e5))/1.982481200946593e5) <= EPSILON) && (fabs((sy- (-1.020596636361769e5))/-1.020596636361769e5) <= EPSILON)) {
-            verified = TRUE;
-        }
-    } else if (M == 40) {
-        if ((fabs((sx- (-5.319717441530e5))/-5.319717441530e5) <= EPSILON) && (fabs((sy- (-3.688834557731e5))/-3.688834557731e5) <= EPSILON)) {
-            verified = TRUE;
+
+        c_print_results((char*)"EP", CLASS, M+1, 0, 0, nit, numtasks*nthreads, tm, Mops, (char*)"Random numbers generated",
+                        verified, (char*)NPBVERSION, (char*)COMPILETIME, (char*)CS1, (char*)CS2, (char*)CS3, (char*)CS4, (char*)CS5, (char*)CS6, (char*)CS7);
+
+        if (TIMERS_ENABLED == TRUE) {
+            printf("Total time:     %f", timer_read(1));
+            printf("Gaussian pairs: %f", timer_read(2));
+            printf("Random numbers: %f", timer_read(3));
         }
     }
 
-    Mops = pow(2.0, M+1)/tm/1000000.0;
+    delete lock;
+	argo::codelete_(lock_flag);
 
-    printf("EP Benchmark Results: \n" "CPU Time = %10.4f\n" "N = 2^%5d\n" "No. Gaussian Pairs = %15.0f\n"
-           "Sums = %25.15e %25.15e\n" "Counts:\n", tm, M, gc, sx, sy);
-    for (i = 0; i  <= NQ-1; i++) {
-        printf("%3d %15.0f\n", i, q[i]);
-    }
+    argo::codelete_(gsx);
+    argo::codelete_(gsy);
+    argo::codelete_(ggc);
+    argo::codelete_array(gq);
 
-    c_print_results((char*)"EP", CLASS, M+1, 0, 0, nit, nthreads, tm, Mops, (char*)"Random numbers generated",
-                    verified, (char*)NPBVERSION, (char*)COMPILETIME, (char*)CS1, (char*)CS2, (char*)CS3, (char*)CS4, (char*)CS5, (char*)CS6, (char*)CS7);
+    argo::finalize();
 
-    if (TIMERS_ENABLED == TRUE) {
-        printf("Total time:     %f", timer_read(1));
-        printf("Gaussian pairs: %f", timer_read(2));
-        printf("Random numbers: %f", timer_read(3));
-    }
     return 0;
 }
