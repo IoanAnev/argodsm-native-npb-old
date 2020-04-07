@@ -12,6 +12,8 @@
             Júnior Löff <loffjh@gmail.com>
 
 --------------------------------------------------------------------*/
+
+#include <mpi.h>
 #include "argo.hpp"
 
 #include <iostream>
@@ -37,6 +39,7 @@ static void fftz2 (int is, int l, int m, int n, int ny, int ny1, dcomplex u[NX],
 static int ilog2(int n);
 static void checksum(int i, dcomplex *u1, int d[3]);
 static void verify (int d1, int d2, int d3, int nt, boolean *verified, char *class_npb);
+static void sync();
 
 /*--------------------------------------------------------------------
 c FT benchmark
@@ -48,11 +51,6 @@ int main(int argc, char **argv) {
     c-------------------------------------------------------------------*/
 
     argo::init(10*1024*1024*1024UL);
-
-    workrank = argo::node_id();
-    numtasks = argo::number_of_nodes();
-
-    int i;
 
     /*------------------------------------------------------------------
     c u0, u1, u2 are the main arrays in the problem. 
@@ -72,53 +70,54 @@ int main(int argc, char **argv) {
     c referenced directly anywhere else. Padding is to avoid accidental 
     c cache problems, since all array sizes are powers of two.
     c-------------------------------------------------------------------*/
-    //static dcomplex u0[NZ][NY][NX];
-    /*static dcomplex pad1[3];*/
-    //static dcomplex u1[NZ][NY][NX];
-    /*static dcomplex pad2[3];*/
-    //static dcomplex u2[NZ][NY][NX];
-    /*static dcomplex pad3[3];*/
-    //static int indexmap[NZ][NY][NX];
-    
-    //dcomplex *u0 = new dcomplex[NZ * NY * NZ];
-    //dcomplex *u1 = new dcomplex[NZ * NY * NZ];
-    //dcomplex *u2 = new dcomplex[NZ * NY * NZ];
-    //int *indexmap = new int[NZ * NY * NZ];
 
-    dcomplex *u0 = argo::conew_array<dcomplex>(NZ * NY * NZ);
-    dcomplex *u1 = argo::conew_array<dcomplex>(NZ * NY * NZ);
-    dcomplex *u2 = argo::conew_array<dcomplex>(NZ * NY * NZ);
-    int *indexmap = argo::conew_array<int>(NZ * NY * NZ);
-
+    int i;
     int iter;
     int nthreads = 1;
     double total_time, mflops;
     boolean verified;
     char class_npb;
 
+    workrank = argo::node_id();
+    numtasks = argo::number_of_nodes();
+
+    lock_flag = argo::conew_<bool>(false);
+	lock = new argo::globallock::global_tas_lock(lock_flag);
+
+    sums = argo::conew_array<dcomplex>(NITER_DEFAULT+1);
+    int *indexmap = argo::conew_array<int>(NZ * NY * NX);
+    dcomplex *u0 = argo::conew_array<dcomplex>(NZ * NY * NX);
+    dcomplex *u1 = argo::conew_array<dcomplex>(NZ * NY * NX);
+    dcomplex *u2 = argo::conew_array<dcomplex>(NZ * NY * NX);
+
     /*--------------------------------------------------------------------
     c Run the entire problem once to make sure all data is touched. 
     c This reduces variable startup costs, which is important for such a 
     c short benchmark. The other NPB 2 implementations are similar. 
     c-------------------------------------------------------------------*/
+
     for (i = 0; i < T_MAX; i++) {
         timer_clear(i);
     }
     setup();
 
     compute_indexmap(indexmap, dims[2]);
+    //printf("Process: %i, ~ 1 ~\n", workrank);
     compute_initial_conditions(u1, dims[0]);
+    //printf("Process: %i, ~ 2 ~\n", workrank);
     fft_init (dims[0][0]);
     
     #pragma omp parallel
     {
         fft(1, u1, u0);
     }
+    //printf("Process: %i, ~ 3 ~\n", workrank);
 
     /*--------------------------------------------------------------------
     c Start over from the beginning. Note that all operations must
     c be timed, in contrast to other benchmarks. 
     c-------------------------------------------------------------------*/
+    
     for (i = 0; i < T_MAX; i++) {
         timer_clear(i);
     }
@@ -127,93 +126,100 @@ int main(int argc, char **argv) {
     if (TIMERS_ENABLED == TRUE) timer_start(T_SETUP);
 
     compute_indexmap(indexmap, dims[2]);
+    //printf("Process: %i, ~ 4 ~\n", workrank);
     compute_initial_conditions(u1, dims[0]);
+    //printf("Process: %i, ~ 5 ~\n", workrank);
     fft_init (dims[0][0]);
 
     #pragma omp parallel private(iter) firstprivate(niter)
     {
-        if (TIMERS_ENABLED == TRUE) {
-            #pragma omp master
-            timer_stop(T_SETUP);
-        }
-        if (TIMERS_ENABLED == TRUE) {
-            #pragma omp master   
-            timer_start(T_FFT);
-        }
+        //if (TIMERS_ENABLED == TRUE) {
+        //    #pragma omp master
+        //    timer_stop(T_SETUP);
+        //}
+        //if (TIMERS_ENABLED == TRUE) {
+        //    #pragma omp master   
+        //    timer_start(T_FFT);
+        //}
+
         fft(1, u1, u0);
-        if (TIMERS_ENABLED == TRUE) {
-            #pragma omp master      
-            timer_stop(T_FFT);
-        }
+        sync();
+        //printf("Process: %i, ~ 6 ~\n", workrank);
+
+        //if (TIMERS_ENABLED == TRUE) {
+        //    #pragma omp master      
+        //    timer_stop(T_FFT);
+        //}
 
         for (iter = 1; iter <= niter; iter++) {
-            if (TIMERS_ENABLED == TRUE) {
-                #pragma omp master      
-                timer_start(T_EVOLVE);
-            }
+            //if (TIMERS_ENABLED == TRUE) {
+            //    #pragma omp master      
+            //    timer_start(T_EVOLVE);
+            //}
 
             evolve(u0, u1, iter, indexmap, dims[0]);
-            if (TIMERS_ENABLED == TRUE) {
-                #pragma omp master      
-                timer_stop(T_EVOLVE);
-            }
-            if (TIMERS_ENABLED == TRUE) {
-                #pragma omp master      
-                timer_start(T_FFT);
-            }
+            sync();
+            //printf("Process: %i, ~ 7 ~\n", workrank);
+
+            //if (TIMERS_ENABLED == TRUE) {
+            //    #pragma omp master      
+            //    timer_stop(T_EVOLVE);
+            //}
+            //if (TIMERS_ENABLED == TRUE) {
+            //    #pragma omp master      
+            //    timer_start(T_FFT);
+            //}
 
             fft(-1, u1, u2);
+            sync();
+            //printf("Process: %i, ~ 8 ~\n", workrank);
 
-            if (TIMERS_ENABLED == TRUE) {
-                #pragma omp master      
-                timer_stop(T_FFT);
-            }
-            if (TIMERS_ENABLED == TRUE) {
-                #pragma omp master      
-                timer_start(T_CHECKSUM);
-            }
+            //if (TIMERS_ENABLED == TRUE) {
+            //    #pragma omp master      
+            //    timer_stop(T_FFT);
+            //}
+            //if (TIMERS_ENABLED == TRUE) {
+            //    #pragma omp master      
+            //    timer_start(T_CHECKSUM);
+            //}
 
             checksum(iter, u2, dims[0]);
+            sync();
 
-            if (TIMERS_ENABLED == TRUE) {
-                #pragma omp master      
-                timer_stop(T_CHECKSUM);
-            }
+            //if (TIMERS_ENABLED == TRUE) {
+            //    #pragma omp master      
+            //    timer_stop(T_CHECKSUM);
+            //}
         }
+    }
 
-        #pragma omp single
+    if (workrank == 0)
+    {
         verify(NX, NY, NZ, niter, &verified, &class_npb);
 
-        #if defined(_OPENMP)
-        #pragma omp master    
-        nthreads = omp_get_num_threads();
-        #endif /* _OPENMP */    
-    } /* end parallel */
+        timer_stop(T_TOTAL);
+        total_time = timer_read(T_TOTAL);
 
-    timer_stop(T_TOTAL);
-        
-    total_time = timer_read(T_TOTAL);
-
-    if( total_time != 0.0) {
-        mflops = 1.0e-6*(double)(NTOTAL) *
-        (14.8157+7.19641*log((double)(NTOTAL))
-        +  (5.23518+7.21113*log((double)(NTOTAL)))*niter)/total_time;
-    } else {
-        mflops = 0.0;
+        if( total_time != 0.0) {
+            mflops = 1.0e-6*(double)(NTOTAL) *
+            (14.8157+7.19641*log((double)(NTOTAL))
+            +  (5.23518+7.21113*log((double)(NTOTAL)))*niter)/total_time;
+        } else {
+            mflops = 0.0;
+        }
+        c_print_results((char*)"FT", class_npb, NX, NY, NZ, niter, numtasks, total_time, mflops, (char*)"          floating point", verified, 
+        (char*)NPBVERSION, (char*)COMPILETIME, (char*)CS1, (char*)CS2, (char*)CS3, (char*)CS4, (char*)CS5, (char*)CS6, (char*)CS7);
+        if (TIMERS_ENABLED == TRUE) print_timers();
     }
-    c_print_results((char*)"FT", class_npb, NX, NY, NZ, niter, nthreads, total_time, mflops, (char*)"          floating point", verified, 
-    (char*)NPBVERSION, (char*)COMPILETIME, (char*)CS1, (char*)CS2, (char*)CS3, (char*)CS4, (char*)CS5, (char*)CS6, (char*)CS7);
-    if (TIMERS_ENABLED == TRUE) print_timers();
 
-    //delete[] u0;
-    //delete[] u1;
-    //delete[] u2;
-    //delete[] indexmap;
+    delete lock;
+	argo::codelete_(lock_flag);
 
+    argo::codelete_array(sums);
+    argo::codelete_array(indexmap);
     argo::codelete_array(u0);
     argo::codelete_array(u1);
     argo::codelete_array(u2);
-    argo::codelete_array(indexmap);
 
     argo::finalize();
 
@@ -234,11 +240,15 @@ static void evolve(dcomplex *u0, dcomplex *u1, int t, int *indexmap, int d[3]) {
 
     int i, j, k;
 
-    #pragma omp for    
-    for (k = 0; k < d[2]; k++) {
+    int chunk = d[2] / numtasks;
+    int beg = workrank * chunk;
+    int end = (workrank != numtasks - 1) ? beg + chunk : d[2];
+    
+    #pragma omp for
+    for (k = beg; k < end; k++) {
         for (j = 0; j < d[1]; j++) {
             for (i = 0; i < d[0]; i++) {
-                crmul(u1[i + j * NY + k * NY * NZ], u0[i + j * NY + k * NY * NZ], ex[t*indexmap[i + j * NY + k * NY * NZ]]);
+                crmul(u1[at(k, j, i)], u0[at(k, j, i)], ex[t*indexmap[at(k, j, i)]]);
             }
         }
     }
@@ -265,9 +275,11 @@ static void compute_initial_conditions(dcomplex *u0, int d[3]) {
     double starts[NZ];
 
     start = SEED;
+    
     /*--------------------------------------------------------------------
     c Jump to the starting element for our first plane.
     c-------------------------------------------------------------------*/
+
     ipow46(A, (zstart[0]-1)*2*NX*NY + (ystart[0]-1)*2*NX, &an);
     /*dummy = */randlc(&start, an);
     ipow46(A, 2*NX*NY, &an);
@@ -281,25 +293,32 @@ static void compute_initial_conditions(dcomplex *u0, int d[3]) {
     /*--------------------------------------------------------------------
     c Go through by z planes filling in one square at a time.
     c-------------------------------------------------------------------*/
-    #pragma omp parallel private(k,i,j,t,x0)
+
+    int chunk = dims[0][2] / numtasks;
+    int beg = workrank * chunk;
+    int end = (workrank != numtasks - 1) ? beg + chunk : dims[0][2];
+
+    #pragma omp parallel private(k, i, j, t, x0)
     {
         double * tmp = new double[NX*2*MAXDIM+1];
 
         #pragma omp for
-        for (k = 0; k < dims[0][2]; k++) {
+        for (k = beg; k < end; k++) {
             x0 = starts[k];
             vranlc(2*NX*dims[0][1], &x0, A, tmp);
 
             t = 1;
             for (j = 0; j < dims[0][1]; j++)
                 for (i = 0; i < NX; i++) {
-                    u0[i + j * NY + k * NY * NZ].real = tmp[t++];
-                    u0[i + j * NY + k * NY * NZ].imag = tmp[t++];
+                    u0[at(k, j, i)].real = tmp[t++];
+                    u0[at(k, j, i)].imag = tmp[t++];
                 }
 
             //if (k != dims[0][2]) /*dummy = */randlc(&start, an);
         }
-    } // end parallel  
+
+        //delete[] tmp;
+    }
 }
 
 /*--------------------------------------------------------------------
@@ -354,13 +373,17 @@ static void setup(void) {
     /*int ierr, i, j, fstatus;*/
     int i;
 
-    printf("\n\n NAS Parallel Benchmarks 4.0 OpenMP C++ version" " - FT Benchmark\n\n");
-    printf("\n\n Developed by: Dalvan Griebler <dalvan.griebler@acad.pucrs.br>\n");
+    if (workrank == 0) {
+        printf("\n\n NAS Parallel Benchmarks 4.0 OpenMP C++ version" " - FT Benchmark\n\n");
+        printf("\n\n Developed by: Dalvan Griebler <dalvan.griebler@acad.pucrs.br>\n");
+    }
 
     niter = NITER_DEFAULT;
 
-    printf(" Size                : %3dx%3dx%3d\n", NX, NY, NZ);
-    printf(" Iterations          :     %7d\n", niter);
+    if (workrank == 0) {
+        printf(" Size                : %3dx%3dx%3d\n", NX, NY, NZ);
+        printf(" Iterations          :     %7d\n", niter);
+    }
 
     /* 1004 format(' Number of processes :     ', i7)
     1005 format(' Processor array     :     ', i3, 'x', i3)
@@ -429,26 +452,28 @@ static void compute_indexmap(int *indexmap, int d[3]) {
     c mod(i-1+n/2, n) - n/2
     c-------------------------------------------------------------------*/
 
-    #pragma omp parallel 
-    {
-        #pragma omp for private(i,j,k,ii,ii2,jj,ij2,kk)    
-        for (i = 0; i < dims[2][0]; i++) {
-            ii =  (i+1+xstart[2]-2+NX/2)%NX - NX/2;
-            ii2 = ii*ii;
-            for (j = 0; j < dims[2][1]; j++) {
-                jj = (j+1+ystart[2]-2+NY/2)%NY - NY/2;
-                ij2 = jj*jj+ii2;
-                for (k = 0; k < dims[2][2]; k++) {
-                    kk = (k+1+zstart[2]-2+NZ/2)%NZ - NZ/2;
-                    indexmap[i + j * NY + k * NY * NZ] = kk*kk+ij2;
-                }
+    int chunk = dims[2][0] / numtasks;
+    int beg = workrank * chunk;
+    int end = (workrank != numtasks - 1) ? beg + chunk : dims[2][0];
+
+    #pragma omp parallel for private(i, j, k, ii, ii2, jj, ij2, kk)
+    for (i = beg; i < end; i++) {
+        ii =  (i+1+xstart[2]-2+NX/2)%NX - NX/2;
+        ii2 = ii*ii;
+        for (j = 0; j < dims[2][1]; j++) {
+            jj = (j+1+ystart[2]-2+NY/2)%NY - NY/2;
+            ij2 = jj*jj+ii2;
+            for (k = 0; k < dims[2][2]; k++) {
+                kk = (k+1+zstart[2]-2+NZ/2)%NZ - NZ/2;
+                indexmap[at(k, j, i)] = kk*kk+ij2;
             }
         }
-    } // end parallel
+    }
 
     /*--------------------------------------------------------------------
     c compute array of exponentials for time evolution. 
     c-------------------------------------------------------------------*/
+
     ap = - 4.0 * ALPHA * PI * PI;
 
     ex[0] = 1.0;
@@ -482,7 +507,6 @@ static void print_timers(void) {
     }
 }
 
-
 /*--------------------------------------------------------------------
 c-------------------------------------------------------------------*/
 
@@ -502,13 +526,15 @@ static void fft(int dir, dcomplex *x1, dcomplex *x2) {
     c-------------------------------------------------------------------*/
 
     if (dir == 1) {
-        cffts1(1, dims[0], x1, x1, y0, y1);	/* x1 -> x1 */
-        cffts2(1, dims[1], x1, x1, y0, y1);	/* x1 -> x1 */
-        cffts3(1, dims[2], x1, x2, y0, y1);	/* x1 -> x2 */
+        cffts1(1, dims[0], x1, x1, y0, y1);	 /* x1 -> x1 */
+        cffts2(1, dims[1], x1, x1, y0, y1);	 /* x1 -> x1 */
+        sync();
+        cffts3(1, dims[2], x1, x2, y0, y1);	 /* x1 -> x2 */
     } else {
-        cffts3(-1, dims[2], x1, x1, y0, y1);	/* x1 -> x1 */
-        cffts2(-1, dims[1], x1, x1, y0, y1);	/* x1 -> x1 */
-        cffts1(-1, dims[0], x1, x2, y0, y1);	/* x1 -> x2 */
+        cffts3(-1, dims[2], x1, x1, y0, y1); /* x1 -> x1 */
+        sync();
+        cffts2(-1, dims[1], x1, x1, y0, y1); /* x1 -> x1 */
+        cffts1(-1, dims[0], x1, x2, y0, y1); /* x1 -> x2 */
     }
 }
 
@@ -528,14 +554,18 @@ static void cffts1(int is, int d[3], dcomplex *x, dcomplex *xout,dcomplex y0[NX]
         logd[i] = ilog2(d[i]);
     }
 
-    #pragma omp for	
-    for (k = 0; k < d[2]; k++) {
+    int chunk = d[2] / numtasks;
+    int beg = workrank * chunk;
+    int end = (workrank != numtasks - 1) ? beg + chunk : d[2];
+
+    #pragma omp for
+    for (k = beg; k < end; k++) {
         for (jj = 0; jj <= d[1] - fftblock; jj+=fftblock) {
                       if (TIMERS_ENABLED == TRUE) timer_start(T_FFTCOPY); 
             for (j = 0; j < fftblock; j++) {
                 for (i = 0; i < d[0]; i++) {
-                    y0[i][j].real = x[i + (j + jj) * NY + k * NY * NZ].real;
-                    y0[i][j].imag = x[i + (j + jj) * NY + k * NY * NZ].imag;
+                    y0[i][j].real = x[at(k, j+jj, i)].real;
+                    y0[i][j].imag = x[at(k, j+jj, i)].imag;
                 }
             }
                       if (TIMERS_ENABLED == TRUE) timer_stop(T_FFTCOPY); 
@@ -548,8 +578,8 @@ static void cffts1(int is, int d[3], dcomplex *x, dcomplex *xout,dcomplex y0[NX]
                       if (TIMERS_ENABLED == TRUE) timer_start(T_FFTCOPY); 
             for (j = 0; j < fftblock; j++) {
                 for (i = 0; i < d[0]; i++) {
-                    xout[i + (j + jj) * NY + k * NY * NZ].real = y0[i][j].real;
-                    xout[i + (j + jj) * NY + k * NY * NZ].imag = y0[i][j].imag;
+                    xout[at(k, j+jj, i)].real = y0[i][j].real;
+                    xout[at(k, j+jj, i)].imag = y0[i][j].imag;
                 }
             }
                       if (TIMERS_ENABLED == TRUE) timer_stop(T_FFTCOPY); 
@@ -572,14 +602,19 @@ static void cffts2(int is, int d[3], dcomplex *x,dcomplex *xout,dcomplex y0[NX][
     for (i = 0; i < 3; i++) {
         logd[i] = ilog2(d[i]);
     }
-    #pragma omp for	
-    for (k = 0; k < d[2]; k++) {
+
+    int chunk = d[2] / numtasks;
+    int beg = workrank * chunk;
+    int end = (workrank != numtasks - 1) ? beg + chunk : d[2];
+
+    #pragma omp for
+    for (k = beg; k < end; k++) {
         for (ii = 0; ii <= d[0] - fftblock; ii+=fftblock) {
             	    if (TIMERS_ENABLED == TRUE) timer_start(T_FFTCOPY); 
             for (j = 0; j < d[1]; j++) {
                 for (i = 0; i < fftblock; i++) {
-                    y0[j][i].real = x[(i + ii) + j * NY + k * NY * NZ].real;
-                    y0[j][i].imag = x[(i + ii) + j * NY + k * NY * NZ].imag;
+                    y0[j][i].real = x[at(k, j, i+ii)].real;
+                    y0[j][i].imag = x[at(k, j, i+ii)].imag;
                 }
             }
             	    if (TIMERS_ENABLED == TRUE) timer_stop(T_FFTCOPY); 
@@ -591,8 +626,8 @@ static void cffts2(int is, int d[3], dcomplex *x,dcomplex *xout,dcomplex y0[NX][
                       if (TIMERS_ENABLED == TRUE) timer_start(T_FFTCOPY); 
             for (j = 0; j < d[1]; j++) {
                 for (i = 0; i < fftblock; i++) {
-                xout[(i + ii) + j * NY + k * NY * NZ].real = y0[j][i].real;
-                xout[(i + ii) + j * NY + k * NY * NZ].imag = y0[j][i].imag;
+                xout[at(k, j, i+ii)].real = y0[j][i].real;
+                xout[at(k, j, i+ii)].imag = y0[j][i].imag;
                 }
             }
                    if (TIMERS_ENABLED == TRUE) timer_stop(T_FFTCOPY); 
@@ -614,14 +649,19 @@ static void cffts3(int is, int d[3], dcomplex *x,dcomplex *xout,dcomplex y0[NX][
     for (i = 0;i < 3; i++) {
         logd[i] = ilog2(d[i]);
     }
-    #pragma omp for	
-    for (j = 0; j < d[1]; j++) {
+
+    int chunk = d[1] / numtasks;
+    int beg = workrank * chunk;
+    int end = (workrank != numtasks - 1) ? beg + chunk : d[1];
+
+    #pragma omp for
+    for (j = beg; j < end; j++) {
         for (ii = 0; ii <= d[0] - fftblock; ii+=fftblock) {
         	    if (TIMERS_ENABLED == TRUE) timer_start(T_FFTCOPY); 
             for (k = 0; k < d[2]; k++) {
                 for (i = 0; i < fftblock; i++) {
-                    y0[k][i].real = x[(i + ii) + j * NY + k * NY * NZ].real;
-                    y0[k][i].imag = x[(i + ii) + j * NY + k * NY * NZ].imag;
+                    y0[k][i].real = x[at(k, j, i+ii)].real;
+                    y0[k][i].imag = x[at(k, j, i+ii)].imag;
                 }
             }
 
@@ -633,8 +673,8 @@ static void cffts3(int is, int d[3], dcomplex *x,dcomplex *xout,dcomplex y0[NX][
                        if (TIMERS_ENABLED == TRUE) timer_start(T_FFTCOPY); 
             for (k = 0; k < d[2]; k++) {
                 for (i = 0; i < fftblock; i++) {
-                    xout[(i + ii) + j * NY + k * NY * NZ].real = y0[k][i].real;
-                    xout[(i + ii) + j * NY + k * NY * NZ].imag = y0[k][i].imag;
+                    xout[at(k, j, i+ii)].real = y0[k][i].real;
+                    xout[at(k, j, i+ii)].imag = y0[k][i].imag;
                 }
             }
                        if (TIMERS_ENABLED == TRUE) timer_stop(T_FFTCOPY); 
@@ -841,6 +881,7 @@ static void checksum(int i, dcomplex *u1, int d[3]) {
 
     /*--------------------------------------------------------------------
     c-------------------------------------------------------------------*/
+
     /*int j, q,r,s, ierr;*/
     int j, q,r,s;
     /*dcomplex chk,allchk;*/
@@ -849,8 +890,18 @@ static void checksum(int i, dcomplex *u1, int d[3]) {
     chk.real = 0.0;
     chk.imag = 0.0;
 
+    #pragma omp single
+    {
+        dum.real = 0.0;
+        dum.imag = 0.0;
+    }
+    
+    int chunk = 1024 / numtasks;
+    int beg = 1 + workrank * chunk;
+    int end = (workrank != numtasks - 1) ? workrank * chunk + chunk : 1024;
+
     #pragma omp for nowait
-    for (j = 1; j <= 1024; j++) {
+    for (j = beg; j <= end; j++) {
         q = j%NX+1;
         if (q >= xstart[0] && q <= xend[0]) {
             r = (3*j)%NY+1;
@@ -858,19 +909,29 @@ static void checksum(int i, dcomplex *u1, int d[3]) {
                 s = (5*j)%NZ+1;
                 if (s >= zstart[0] && s <= zend[0]) {
                     //cadd(chk,chk,u1[s-zstart[0]][r-ystart[0]][q-xstart[0]]);
-                    cadd(chk,chk,u1[(q-xstart[0]) + (r-ystart[0]) * NY + (s-zstart[0]) * NY * NZ]);
+                    cadd(chk,chk,u1[at(s-zstart[0], r-ystart[0], q-xstart[0])]);
                 }
             }
         }
     }
     #pragma omp critical
     {
-        sums[i].real += chk.real;
-        sums[i].imag += chk.imag;
+        dum.real += chk.real;
+        dum.imag += chk.imag;
     }
     #pragma omp barrier
-    #pragma omp single
-    {    
+    
+    #pragma omp master
+    {
+        lock->lock();
+        sums[i].real += dum.real;
+        sums[i].imag += dum.imag;
+        lock->unlock();
+        argo::barrier();
+    }
+
+    #pragma omp master
+    if (workrank == 0) {
         /* complex % real */
         sums[i].real = sums[i].real/(double)(NTOTAL);
         sums[i].imag = sums[i].imag/(double)(NTOTAL);
@@ -1135,3 +1196,8 @@ static void verify (int d1, int d2, int d3, int nt, boolean *verified, char *cla
     printf("class_npb = %1c\n", *class_npb);
 }
 
+static void sync() {
+    #pragma omp barrier
+    #pragma omp single
+    argo::barrier();
+}

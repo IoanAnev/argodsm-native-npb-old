@@ -23,13 +23,18 @@ c  512 for class C.
 #define FFTBLOCK	FFTBLOCK_DEFAULT
 #define FFTBLOCKPAD	FFTBLOCKPAD_DEFAULT
 
-/* COMMON block: blockinfo */
+/* COMMON block: blockinfo  */
 int fftblock;
 int fftblockpad;
 
+/* COMMON block: taskinfo   */
 int workrank;
 int numtasks;
-      
+
+/* COMMON block: evolvelock */
+bool *lock_flag;
+argo::globallock::global_tas_lock *lock;
+
 /*
 c we need a bunch of logic to keep track of how
 c arrays are laid out. 
@@ -92,7 +97,7 @@ static int zend[3];
 
 #define	EXPMAX	(NITER_DEFAULT*(NX*NX/4+NY*NY/4+NZ*NZ/4))
 
-/* COMMON block: excomm */
+/* COMMON block: excomm     */
 static double ex[EXPMAX+1];	/* ex(0:expmax) */
 
 /*
@@ -100,16 +105,19 @@ c roots of unity array
 c relies on x being largest dimension?
 */
 
-/* COMMON block: ucomm */
+/* COMMON block: ucomm      */
 static dcomplex u[NX];
 
 /* for checksum data */
 
-/* COMMON block: sumcomm */
-static dcomplex sums[NITER_DEFAULT+1]; /* sums(0:niter_default) */
+/* COMMON block: sumcomm    */
+dcomplex *sums; /* sums(0:niter_default) */
 
-/* number of iterations*/
+/* COMMON block: sumdumm    */
+static dcomplex dum;
 
-/* COMMON block: iter */
+/* number of iterations     */
+
+/* COMMON block: iter       */
 static int niter;
 
