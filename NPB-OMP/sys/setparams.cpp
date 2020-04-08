@@ -175,13 +175,15 @@ void check_info(int type, char class_npb)
 
   /* check class_npb */
   if (class_npb != 'S' && 
+      class_npb != 'W' && 
       class_npb != 'A' && 
       class_npb != 'B' && 
-      class_npb != 'R' && 
-      class_npb != 'W' && 
-      class_npb != 'C') {
+      class_npb != 'C' && 
+      class_npb != 'D' && 
+      class_npb != 'E' && 
+      class_npb != 'F') {
     printf("setparams: Unknown benchmark class_npb %c\n", class_npb); 
-    printf("setparams: Allowed classes are \"S\", \"A\", \"B\" and \"C\"\n");
+    printf("setparams: Allowed classes are \"S\", \"W\", and \"A\" through \"F\"\n");
     exit(1);
   }
 
@@ -361,11 +363,14 @@ void write_sp_info(FILE *fp, char class_npb)
 {
   int problem_size, niter;
   const char *dt;
-  if      (class_npb == 'S') { problem_size = 12;  dt = "0.015";   niter = 100; }
-  else if (class_npb == 'W') { problem_size = 36;  dt = "0.0015";  niter = 400; }
-  else if (class_npb == 'A') { problem_size = 64;  dt = "0.0015";  niter = 400; }
-  else if (class_npb == 'B') { problem_size = 102; dt = "0.001";   niter = 400; }
-  else if (class_npb == 'C') { problem_size = 162; dt = "0.00067"; niter = 400; }
+  if      (class_npb == 'S') { problem_size = 12;  dt = "0.015";    niter = 100; }
+  else if (class_npb == 'W') { problem_size = 36;  dt = "0.0015";   niter = 400; }
+  else if (class_npb == 'A') { problem_size = 64;  dt = "0.0015";   niter = 400; }
+  else if (class_npb == 'B') { problem_size = 102; dt = "0.001";    niter = 400; }
+  else if (class_npb == 'C') { problem_size = 162; dt = "0.00067";  niter = 400; }
+  else if (class_npb == 'D') { problem_size = 408; dt = "0.00030";  niter = 500; }
+  else if (class_npb == 'E') { problem_size = 1020; dt = "0.0001";  niter = 500; }
+  else if (class_npb == 'F') { problem_size = 2560; dt = "0.15e-4"; niter = 500; }
   else {
     printf("setparams: Internal error: invalid class_npb %c\n", class_npb);
     exit(1);
@@ -383,11 +388,14 @@ void write_bt_info(FILE *fp, char class_npb)
 {
   int problem_size, niter;
   const char *dt;
-  if      (class_npb == 'S') { problem_size = 12;  dt = "0.010";   niter = 60; }
+  if      (class_npb == 'S') { problem_size = 12;  dt = "0.010";   niter = 60;  }
   else if (class_npb == 'W') { problem_size = 24;  dt = "0.0008";  niter = 200; }
   else if (class_npb == 'A') { problem_size = 64;  dt = "0.0008";  niter = 200; }
   else if (class_npb == 'B') { problem_size = 102; dt = "0.0003";  niter = 200; }
   else if (class_npb == 'C') { problem_size = 162; dt = "0.0001";  niter = 200; }
+  else if (class_npb == 'D') { problem_size = 408; dt = "0.00002"; niter = 250; }
+  else if (class_npb == 'E') { problem_size = 1020; dt = "0.4e-5"; niter = 250; }
+  else if (class_npb == 'F') { problem_size = 2560; dt = "0.6e-6"; niter = 250; }
   else {
     printf("setparams: Internal error: invalid class_npb %c\n", class_npb);
     exit(1);
@@ -405,7 +413,7 @@ void write_bt_info(FILE *fp, char class_npb)
 void write_dc_info(FILE *fp, char class_npb)
 {
   long int input_tuples, attrnum;
-  if      (class_npb == 'S') { input_tuples = 1000;     attrnum = 5; }
+  if      (class_npb == 'S') { input_tuples = 1000;     attrnum = 5;  }
   else if (class_npb == 'W') { input_tuples = 100000;   attrnum = 10; }
   else if (class_npb == 'A') { input_tuples = 1000000;  attrnum = 15; }
   else if (class_npb == 'B') { input_tuples = 10000000; attrnum = 20; }
@@ -427,11 +435,14 @@ void write_lu_info(FILE *fp, char class_npb)
   int xdiv, ydiv; /* number of cells in x and y direction */
   const char *dt_default;
 
-  if      (class_npb == 'S') { problem_size = 12;  dt_default = "0.5"; itmax = 50; }
+  if      (class_npb == 'S') { problem_size = 12;  dt_default = "0.5";    itmax = 50;  }
   else if (class_npb == 'W') { problem_size = 33;  dt_default = "1.5e-3"; itmax = 300; }
-  else if (class_npb == 'A') { problem_size = 64;  dt_default = "2.0"; itmax = 250; }
-  else if (class_npb == 'B') { problem_size = 102; dt_default = "2.0"; itmax = 250; }
-  else if (class_npb == 'C') { problem_size = 162; dt_default = "2.0"; itmax = 250; }
+  else if (class_npb == 'A') { problem_size = 64;  dt_default = "2.0";    itmax = 250; }
+  else if (class_npb == 'B') { problem_size = 102; dt_default = "2.0";    itmax = 250; }
+  else if (class_npb == 'C') { problem_size = 162; dt_default = "2.0";    itmax = 250; }
+  else if (class_npb == 'D') { problem_size = 408; dt_default = "1.0";    itmax = 300; }
+  else if (class_npb == 'E') { problem_size = 1020; dt_default = "0.5";   itmax = 300; }
+  else if (class_npb == 'F') { problem_size = 2560; dt_default = "0.2";   itmax = 300; }
   else {
     printf("setparams: Internal error: invalid class_npb %c\n", class_npb);
     exit(1);
@@ -460,11 +471,14 @@ void write_mg_info(FILE *fp, char class_npb)
 {
   int problem_size, nit, log2_size, lt_default, lm;
   int ndim1, ndim2, ndim3;
-  if      (class_npb == 'S') { problem_size = 32; nit = 4; }
-  else if (class_npb == 'W') { problem_size = 64; nit = 40; }
-  else if (class_npb == 'A') { problem_size = 256; nit = 4; }
-  else if (class_npb == 'B') { problem_size = 256; nit = 20; }
-  else if (class_npb == 'C') { problem_size = 512; nit = 20; }
+  if      (class_npb == 'S') { problem_size = 32;   nit = 4;  }
+  else if (class_npb == 'W') { problem_size = 64;   nit = 40; }
+  else if (class_npb == 'A') { problem_size = 256;  nit = 4;  }
+  else if (class_npb == 'B') { problem_size = 256;  nit = 20; }
+  else if (class_npb == 'C') { problem_size = 512;  nit = 20; }
+  else if (class_npb == 'D') { problem_size = 1024; nit = 50; }
+  else if (class_npb == 'E') { problem_size = 2048; nit = 50; }
+  else if (class_npb == 'F') { problem_size = 4096; nit = 50; }
   else {
     printf("setparams: Internal error: invalid class_npb type %c\n", class_npb);
     exit(1);
@@ -502,7 +516,9 @@ void write_is_info(FILE *fp, char class_npb)
       class_npb != 'W' &&
       class_npb != 'A' &&
       class_npb != 'B' &&
-      class_npb != 'C')
+      class_npb != 'C' &&
+      class_npb != 'D' &&
+      class_npb != 'E')
   {
     printf("setparams: Internal error: invalid class_npb type %c\n", class_npb);
     exit(1);
@@ -519,22 +535,31 @@ void write_cg_info(FILE *fp, char class_npb)
   int na,nonzer,niter;
   const char *shift,*rcond="1.0e-1";
   const char *shiftS="10.0",
-       *shiftW="12.0",
-       *shiftA="20.0",
-       *shiftB="60.0",
-       *shiftC="110.0";
+       *shiftW="12.0" ,
+       *shiftA="20.0" ,
+       *shiftB="60.0" ,
+       *shiftC="110.0",
+       *shiftD="500.0",
+       *shiftE="1.5e3",
+       *shiftF="5.0e3";
 
 
   if( class_npb == 'S' )
-  { na=1400; nonzer=7; niter=15; shift=shiftS; }
+  { na=1400; nonzer=7; niter=15;       shift=shiftS; }
   else if( class_npb == 'W' )
-  { na=7000; nonzer=8; niter=15; shift=shiftW; }
+  { na=7000; nonzer=8; niter=15;       shift=shiftW; }
   else if( class_npb == 'A' )
-  { na=14000; nonzer=11; niter=15; shift=shiftA; }
+  { na=14000; nonzer=11; niter=15;     shift=shiftA; }
   else if( class_npb == 'B' )
-  { na=75000; nonzer=13; niter=75; shift=shiftB; }
+  { na=75000; nonzer=13; niter=75;     shift=shiftB; }
   else if( class_npb == 'C' )
-  { na=150000; nonzer=15; niter=75; shift=shiftC; }
+  { na=150000; nonzer=15; niter=75;    shift=shiftC; }
+  else if( class_npb == 'D' )
+  { na=1500000; nonzer=21; niter=100;  shift=shiftD; }
+  else if( class_npb == 'E' )
+  { na=9000000; nonzer=26; niter=100;  shift=shiftE; }
+  else if( class_npb == 'F' )
+  { na=54000000; nonzer=31; niter=100; shift=shiftF; }
   else
   {
     printf("setparams: Internal error: invalid class_npb type %c\n", class_npb);
@@ -558,12 +583,15 @@ void write_ft_info(FILE *fp, char class_npb)
    * is to specify log of number of grid points in each
    * direction m1, m2, m3. nt is the number of iterations
    */
-  int nx, ny, nz, maxdim, niter, np_min;
-  if      (class_npb == 'S') { nx = 64; ny = 64; nz = 64; niter = 6;}
-  else if (class_npb == 'W') { nx = 128; ny = 128; nz = 32; niter = 6;}
-  else if (class_npb == 'A') { nx = 256; ny = 256; nz = 128; niter = 6;}
-  else if (class_npb == 'B') { nx = 512; ny = 256; nz = 256; niter =20;}
-  else if (class_npb == 'C') { nx = 512; ny = 512; nz = 512; niter =20;}
+  unsigned long nx, ny, nz, maxdim, niter, np_min;
+  if      (class_npb == 'S') { nx = 64; ny = 64; nz = 64;       niter = 6;  }
+  else if (class_npb == 'W') { nx = 128; ny = 128; nz = 32;     niter = 6;  }
+  else if (class_npb == 'A') { nx = 256; ny = 256; nz = 128;    niter = 6;  }
+  else if (class_npb == 'B') { nx = 512; ny = 256; nz = 256;    niter = 20; }
+  else if (class_npb == 'C') { nx = 512; ny = 512; nz = 512;    niter = 20; }
+  else if (class_npb == 'D') { nx = 2048; ny = 1024; nz = 1024; niter = 25; }
+  else if (class_npb == 'E') { nx = 4096; ny = 2048; nz = 2048; niter = 25; }
+  else if (class_npb == 'F') { nx = 8192; ny = 4096; nz = 4096; niter = 25; }
   else {
     printf("setparams: Internal error: invalid class_npb type %c\n", class_npb);
     exit(1);
@@ -571,12 +599,12 @@ void write_ft_info(FILE *fp, char class_npb)
   maxdim = nx;
   if (ny > maxdim) maxdim = ny;
   if (nz > maxdim) maxdim = nz;
-  fprintf(fp, "#define\tNX\t%d\n", nx);
-  fprintf(fp, "#define\tNY\t%d\n", ny);
-  fprintf(fp, "#define\tNZ\t%d\n", nz);
-  fprintf(fp, "#define\tMAXDIM\t%d\n", maxdim);
-  fprintf(fp, "#define\tNITER_DEFAULT\t%d\n", niter);
-  fprintf(fp, "#define\tNTOTAL\t%d\n", nx*ny*nz);
+  fprintf(fp, "#define\tNX\t%luUL\n", nx);
+  fprintf(fp, "#define\tNY\t%luUL\n", ny);
+  fprintf(fp, "#define\tNZ\t%luUL\n", nz);
+  fprintf(fp, "#define\tMAXDIM\t%luUL\n", maxdim);
+  fprintf(fp, "#define\tNITER_DEFAULT\t%luUL\n", niter);
+  fprintf(fp, "#define\tNTOTAL\t%luUL\n", nx*ny*nz);
 }
 
 /*
@@ -595,6 +623,9 @@ void write_ep_info(FILE *fp, char class_npb)
   else if (class_npb == 'A') { m = 28; }
   else if (class_npb == 'B') { m = 30; }
   else if (class_npb == 'C') { m = 32; }
+  else if (class_npb == 'D') { m = 36; }
+  else if (class_npb == 'E') { m = 40; }
+  else if (class_npb == 'F') { m = 44; }
   else {
     printf("setparams: Internal error: invalid class_npb type %c\n", class_npb);
     exit(1);

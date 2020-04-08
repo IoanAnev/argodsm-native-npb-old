@@ -52,6 +52,21 @@ c   not affect the results.
 int main(int argc, char **argv) {
     argo::init(10*1024*1024*1024UL);
 
+    double Mops, t1, sx, sy, tm, an, gc;
+    double dum[3] = { 1.0, 1.0, 1.0 };
+    int np,i, k, nit, k_offset, j;
+    int nthreads;
+    boolean verified;
+    char size[13+1];	/* character*13 */
+
+    #pragma omp parallel
+	{
+		#if defined(_OPENMP)
+		#pragma omp master
+			nthreads = omp_get_num_threads();
+		#endif /* _OPENMP */
+	}
+
     int workrank = argo::node_id();
     int numtasks = argo::number_of_nodes();
 
@@ -65,13 +80,6 @@ int main(int argc, char **argv) {
     double *gsy = argo::conew_<double>(0.0);
     double *ggc = argo::conew_<double>(0.0);
     double *gq = argo::conew_array<double>(NQ);
-
-    double Mops, t1, sx, sy, tm, an, gc;
-    double dum[3] = { 1.0, 1.0, 1.0 };
-    int np,i, k, nit, k_offset, j;
-    int nthreads = 1;
-    boolean verified;
-    char size[13+1];	/* character*13 */
 
     /*
     c   Because the size of the problem is too large to store in a 32-bit
@@ -205,10 +213,6 @@ int main(int argc, char **argv) {
         {
             for (i = 0; i <= NQ - 1; i++) q[i] += qq[i];
         }
-#if defined(_OPENMP)
-        #pragma omp master
-        nthreads = omp_get_num_threads();
-#endif /* _OPENMP */
     } /* end of parallel region */
     for (i = 0; i <= NQ-1; i++) {
         gc = gc + q[i];
@@ -257,6 +261,10 @@ int main(int argc, char **argv) {
             }
         } else if (M == 40) {
             if ((fabs((*gsx- (-5.319717441530e5))/-5.319717441530e5) <= EPSILON) && (fabs((*gsy- (-3.688834557731e5))/-3.688834557731e5) <= EPSILON)) {
+                verified = TRUE;
+            }
+        } else if (M == 44) {
+            if ((fabs((*gsx- (-1.986768071074039e1))/-1.986768071074039e1) <= EPSILON) && (fabs((*gsy- (-2.164441190520301e1))/-2.164441190520301e1) <= EPSILON)) {
                 verified = TRUE;
             }
         }

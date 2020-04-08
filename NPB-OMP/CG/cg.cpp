@@ -26,6 +26,7 @@ c  be used without penalty.
 c---------------------------------------------------------------------
 */
 
+#include "argo.hpp"
 #include <iostream>
 #include "npbparams.hpp"
 #include "npb-CPP.hpp"
@@ -35,50 +36,50 @@ c---------------------------------------------------------------------
 /* global variables */
 
 /* common /partit_size/ */
-static int naa;
-static int nzz;
-static int firstrow;
-static int lastrow;
-static int firstcol;
-static int lastcol;
+static long naa;
+static long nzz;
+static long firstrow;
+static long lastrow;
+static long firstcol;
+static long lastcol;
 
 /* common /main_int_mem/ */
-static int colidx[NZ+1];	/* colidx[1:NZ] */
-static int rowstr[NA+1+1];	/* rowstr[1:NA+1] */
-static int iv[2*NA+1+1];	/* iv[1:2*NA+1] */
-static int arow[NZ+1];		/* arow[1:NZ] */
-static int acol[NZ+1];		/* acol[1:NZ] */
+long *colidx;	/* colidx[1:NZ] 	*/
+long *rowstr;	/* rowstr[1:NA+1] 	*/
+long *iv;		/* iv[1:2*NA+1] 	*/
+long *arow;		/* arow[1:NZ] 		*/
+long *acol;		/* acol[1:NZ] 		*/
 
 /* common /main_flt_mem/ */
-static double v[NA+1+1];	/* v[1:NA+1] */
-static double aelt[NZ+1];	/* aelt[1:NZ] */
-static double a[NZ+1];		/* a[1:NZ] */
-static double x[NA+2+1];	/* x[1:NA+2] */
-static double z[NA+2+1];	/* z[1:NA+2] */
-static double p[NA+2+1];	/* p[1:NA+2] */
-static double q[NA+2+1];	/* q[1:NA+2] */
-static double r[NA+2+1];	/* r[1:NA+2] */
-static double w[NA+2+1];	/* w[1:NA+2] */
+double *v;		/* v[1:NA+1] 		*/
+double *aelt;	/* aelt[1:NZ] 		*/
+double *a;		/* a[1:NZ] */
+//static double x[NA+2+1];	/* x[1:NA+2] */
+double *z;		/* z[1:NA+2] 		*/
+double *p;		/* p[1:NA+2] 		*/
+double *q;		/* q[1:NA+2] 		*/
+double *r;		/* r[1:NA+2] 		*/
+double *w;		/* w[1:NA+2] 		*/
 
 /* common /urando/ */
 static double amult;
 static double tran;
 
 /* function declarations */
-static void conj_grad (int colidx[], int rowstr[], double x[], 
+static void conj_grad (long colidx[], long rowstr[], double x[], 
 	double z[], double a[], double p[], double q[], double r[], 
 	double w[], double *rnorm);
-static void makea(int n, int nz, double a[], int colidx[], int rowstr[],
-	int nonzer, int firstrow, int lastrow, int firstcol,
-	int lastcol, double rcond, int arow[], int acol[],
-	double aelt[], double v[], int iv[], double shift );
-static void sparse(double a[], int colidx[], int rowstr[], int n,
-	int arow[], int acol[], double aelt[],
-	int firstrow, int lastrow,
-	double x[], boolean mark[], int nzloc[], int nnza);
-static void sprnvc(int n, int nz, double v[], int iv[], int nzloc[], int mark[]);
-static int icnvrt(double x, int ipwr2);
-static void vecset(int n, double v[], int iv[], int *nzv, int i, double val);
+static void makea(long n, long nz, double a[], long colidx[], long rowstr[],
+	long nonzer, long firstrow, long lastrow, long firstcol,
+	long lastcol, double rcond, long arow[], long acol[],
+	double aelt[], double v[], long iv[], double shift );
+static void sparse(double a[], long colidx[], long rowstr[], long n,
+	long arow[], long acol[], double aelt[],
+	long firstrow, long lastrow,
+	double x[], boolean mark[], long nzloc[], long nnza);
+static void sprnvc(long n, long nz, double v[], long iv[], long nzloc[], long mark[]);
+static long icnvrt(double x, long ipwr2);
+static void vecset(long n, double v[], long iv[], long *nzv, long i, double val);
 
 /*--------------------------------------------------------------------
       program cg
@@ -86,8 +87,10 @@ static void vecset(int n, double v[], int iv[], int *nzv, int i, double val);
 
 int main(int argc, char **argv)
 {
-	int	i, j, k, it;
-	int nthreads = 1;
+	argo::init(10*1024*1024*1024UL);
+
+	long	i, j, k, it;
+	long nthreads;
 	double zeta;
 	double rnorm;
 	double norm_temp11;
@@ -96,6 +99,35 @@ int main(int argc, char **argv)
 	char class_npb;
 	boolean verified;
 	double zeta_verify_value, epsilon;
+
+	#pragma omp parallel
+	{
+		#if defined(_OPENMP)
+		#pragma omp master
+			nthreads = omp_get_num_threads();
+		#endif /* _OPENMP */
+	}
+
+	colidx = new long[NZ+1];
+	rowstr = new long[NA+1+1];
+	iv = new long[2*NA+1+1];
+	arow = new long[NZ+1];
+	acol = new long[NZ+1];
+
+	v = new double[NA+1+1];
+	aelt = new double[NZ+1];
+	a = new double[NZ+1];
+	z = new double[NA+2+1];
+	p = new double[NA+2+1];
+	q = new double[NA+2+1];
+	r = new double[NA+2+1];
+	w = new double[NA+2+1];
+
+	int workrank = argo::node_id();
+    int numtasks = argo::number_of_nodes();
+
+	double *gnorm_temps = argo::conew_array<double>(2*numtasks);
+	double *x = argo::conew_array<double>(NA+2+1);
 
 	firstrow = 1;
 	lastrow  = NA;
@@ -117,14 +149,25 @@ int main(int argc, char **argv)
 	} else if (NA == 150000 && NONZER == 15 && NITER == 75 && SHIFT == 110.0) {
 		class_npb = 'C';
 		zeta_verify_value = 28.973605592845;
+	} else if (NA == 1500000 && NONZER == 21 && NITER == 100 && SHIFT == 500.0) {
+		class_npb = 'D';
+		zeta_verify_value = 52.514532105794;
+	} else if (NA == 9000000 && NONZER == 26 && NITER == 100 && SHIFT == 1.5e3) {
+		class_npb = 'E';
+		zeta_verify_value = 77.522164599383;
+	} else if (NA == 54000000 && NONZER == 31 && NITER == 100 && SHIFT == 5.0e3) {
+		class_npb = 'F';
+		zeta_verify_value = 107.3070826433;
 	} else {
 		class_npb = 'U';
 	}
 
-	printf("\n\n NAS Parallel Benchmarks 4.0 OpenMP C++ version"" - CG Benchmark\n");
-	printf("\n\n Developed by: Dalvan Griebler <dalvan.griebler@acad.pucrs.br>\n");
-	printf(" Size: %10d\n", NA);
-	printf(" Iterations: %5d\n", NITER);
+	if (workrank == 0) {
+		printf("\n\n NAS Parallel Benchmarks 4.0 OpenMP C++ version"" - CG Benchmark\n");
+		printf("\n\n Developed by: Dalvan Griebler <dalvan.griebler@acad.pucrs.br>\n");
+		printf(" Size: %10d\n", NA);
+		printf(" Iterations: %5d\n", NITER);
+	}
 
 	naa = NA;
 	nzz = NZ;
@@ -163,8 +206,12 @@ int main(int argc, char **argv)
 		/*--------------------------------------------------------------------
 		c  set starting vector to (1, 1, .... 1)
 		c-------------------------------------------------------------------*/
+		int chunk = (NA+1) / numtasks;
+    	int beg = 1 + workrank * chunk;
+    	int end = (workrank != numtasks - 1) ? workrank * chunk + chunk : NA+1;
+
 		#pragma omp for nowait
-		for (i = 1; i <= NA+1; i++) {
+		for (i = beg; i <= end; i++) {
 			x[i] = 1.0;
 		}
 		#pragma omp single
@@ -189,6 +236,10 @@ int main(int argc, char **argv)
 			c  Also, find norm of z
 			c  So, first: (z.z)
 			c-------------------------------------------------------------------*/
+			chunk = (lastcol-firstcol+1) / numtasks;
+    		beg = 1 + workrank * chunk;
+    		end = (workrank != numtasks - 1) ? workrank * chunk + chunk : lastcol-firstcol+1;
+
 			#pragma omp single
 			{	
 				norm_temp11 = 0.0;
@@ -196,7 +247,7 @@ int main(int argc, char **argv)
 			} /* end single */
 
 			#pragma omp for reduction(+:norm_temp11,norm_temp12)
-			for (j = 1; j <= lastcol-firstcol+1; j++) {
+			for (j = beg; j <= end; j++) {
 				norm_temp11 = norm_temp11 + x[j]*z[j];
 				norm_temp12 = norm_temp12 + z[j]*z[j];
 			}
@@ -207,7 +258,7 @@ int main(int argc, char **argv)
 			c  Normalize z to obtain x
 			c-------------------------------------------------------------------*/
 			#pragma omp for
-			for (j = 1; j <= lastcol-firstcol+1; j++) {
+			for (j = beg; j <= end; j++) {
 				x[j] = norm_temp12*z[j];
 			}
 
@@ -216,14 +267,20 @@ int main(int argc, char **argv)
 		/*--------------------------------------------------------------------
 		c  set starting vector to (1, 1, .... 1)
 		c-------------------------------------------------------------------*/
+		chunk = (NA+1) / numtasks;
+    	beg = 1 + workrank * chunk;
+    	end = (workrank != numtasks - 1) ? workrank * chunk + chunk : NA+1;
+
 		#pragma omp for nowait
-		for (i = 1; i <= NA+1; i++) {
+		for (i = beg; i <= end; i++) {
 			x[i] = 1.0;
 		}
 		#pragma omp single    
 			zeta  = 0.0;
 
 	} /* end parallel */
+
+	argo::barrier();
 
 	timer_clear( 1 );
 
@@ -250,6 +307,10 @@ int main(int argc, char **argv)
 			c  Also, find norm of z
 			c  So, first: (z.z)
 			c-------------------------------------------------------------------*/
+			static int chunk = (lastcol-firstcol+1) / numtasks;
+    		static int beg = 1 + workrank * chunk;
+    		static int end = (workrank != numtasks - 1) ? workrank * chunk + chunk : lastcol-firstcol+1;
+
 			#pragma omp single
 			{	
 				norm_temp11 = 0.0;
@@ -257,38 +318,46 @@ int main(int argc, char **argv)
 			} /* end single */
 
 			#pragma omp for reduction(+:norm_temp11,norm_temp12)
-			for (j = 1; j <= lastcol-firstcol+1; j++) {
+			for (j = beg; j <= end; j++) {
 				norm_temp11 = norm_temp11 + x[j]*z[j];
 				norm_temp12 = norm_temp12 + z[j]*z[j];
 			}
 
 			#pragma omp single
-			{	
+			{
+				gnorm_temps[2*workrank] = norm_temp11;
+				gnorm_temps[2*workrank+1] = norm_temp12;
+
+				argo::barrier();
+
+				for (j = 0; j < numtasks; j++) {
+					if (j != workrank) {
+						norm_temp11 += gnorm_temps[2*j];
+						norm_temp12 += gnorm_temps[2*j+1];
+					}
+				}
+
 				norm_temp12 = 1.0 / sqrt( norm_temp12 );
 
 				zeta = SHIFT + 1.0 / norm_temp11;
-			} /* end single */
 
-			#pragma omp master
-			{
-				if( it == 1 ) {
-					printf("   iteration           ||r||                 zeta\n");
+				if (workrank == 0) {
+					if( it == 1 ) {
+						printf("   iteration           ||r||                 zeta\n");
+					}
+					printf("    %5d       %20.14e%20.13e\n", it, rnorm, zeta);
 				}
-				printf("    %5d       %20.14e%20.13e\n", it, rnorm, zeta);
-			} /* end master */
+			} /* end single */
 
 			/*--------------------------------------------------------------------
 			c  Normalize z to obtain x
 			c-------------------------------------------------------------------*/
 			#pragma omp for 
-			for (j = 1; j <= lastcol-firstcol+1; j++) {
+			for (j = beg; j <= end; j++) {
 				x[j] = norm_temp12*z[j];
 			} /* end of main iter inv pow meth */
 
-			#if defined(_OPENMP)
-			#pragma omp master
-				nthreads = omp_get_num_threads();
-			#endif /* _OPENMP */
+			argo::barrier(nthreads);
 		}
 	} /* end parallel */
 
@@ -299,42 +368,66 @@ int main(int argc, char **argv)
 
 	t = timer_read( 1 );
 
-	printf(" Benchmark completed\n");
+	if (workrank == 0)
+	{
+		printf(" Benchmark completed\n");
 
-	epsilon = 1.0e-10;
-	if (class_npb != 'U') {
-		if (fabs(zeta - zeta_verify_value) <= epsilon) {
-			verified = TRUE;
-			printf(" VERIFICATION SUCCESSFUL\n");
-			printf(" Zeta is    %20.12e\n", zeta);
-			printf(" Error is   %20.12e\n", zeta - zeta_verify_value);
+		epsilon = 1.0e-10;
+		if (class_npb != 'U') {
+			if (fabs(zeta - zeta_verify_value) <= epsilon) {
+				verified = TRUE;
+				printf(" VERIFICATION SUCCESSFUL\n");
+				printf(" Zeta is    %20.12e\n", zeta);
+				printf(" Error is   %20.12e\n", zeta - zeta_verify_value);
+			} else {
+				verified = FALSE;
+				printf(" VERIFICATION FAILED\n");
+				printf(" Zeta                %20.12e\n", zeta);
+				printf(" The correct zeta is %20.12e\n", zeta_verify_value);
+			}
 		} else {
 			verified = FALSE;
-			printf(" VERIFICATION FAILED\n");
-			printf(" Zeta                %20.12e\n", zeta);
-			printf(" The correct zeta is %20.12e\n", zeta_verify_value);
+			printf(" Problem size unknown\n");
+			printf(" NO VERIFICATION PERFORMED\n");
 		}
-	} else {
-		verified = FALSE;
-		printf(" Problem size unknown\n");
-		printf(" NO VERIFICATION PERFORMED\n");
+		if ( t != 0.0 ) {
+			mflops = (2.0*NITER*NA)
+			* (3.0+(NONZER*(NONZER+1)) + 25.0*(5.0+(NONZER*(NONZER+1))) + 3.0 )
+			/ t / 1000000.0;
+		} else {
+			mflops = 0.0;
+		}
+		c_print_results((char*)"CG", class_npb, NA, 0, 0, NITER, numtasks*nthreads, t, mflops, (char*)"          floating point",	verified, (char*)NPBVERSION, (char*)COMPILETIME, (char*)CS1, (char*)CS2, (char*)CS3, (char*)CS4, (char*)CS5, (char*)CS6, (char*)CS7);
 	}
-	if ( t != 0.0 ) {
-		mflops = (2.0*NITER*NA)
-		* (3.0+(NONZER*(NONZER+1)) + 25.0*(5.0+(NONZER*(NONZER+1))) + 3.0 )
-		/ t / 1000000.0;
-	} else {
-		mflops = 0.0;
-	}
-	c_print_results((char*)"CG", class_npb, NA, 0, 0, NITER, nthreads, t, mflops, (char*)"          floating point",	verified, (char*)NPBVERSION, (char*)COMPILETIME, (char*)CS1, (char*)CS2, (char*)CS3, (char*)CS4, (char*)CS5, (char*)CS6, (char*)CS7);
+
+	delete[] colidx;
+	delete[] rowstr;
+	delete[] iv;
+	delete[] arow;
+	delete[] acol;
+
+	delete[] v;
+	delete[] aelt;
+	delete[] a;
+	delete[] z;
+	delete[] p;
+	delete[] q;
+	delete[] r;
+	delete[] w;
+
+	argo::codelete_array(gnorm_temps);
+	argo::codelete_array(x);
+
+	argo::finalize();
+
 	return 0;
 }
 
 /*--------------------------------------------------------------------
 c-------------------------------------------------------------------*/
 static void conj_grad (
-	int colidx[],	/* colidx[1:nzz] */
-	int rowstr[],	/* rowstr[1:naa+1] */
+	long colidx[],	/* colidx[1:nzz] */
+	long rowstr[],	/* rowstr[1:naa+1] */
 	double x[],		/* x[*] */
 	double z[],		/* z[*] */
 	double a[],		/* a[1:nzz] */
@@ -352,8 +445,8 @@ c  CG algorithm
 c---------------------------------------------------------------------*/
 {
 	static double d, sum, rho, rho0, alpha, beta;
-	int j, k;
-	int cgit, cgitmax = 25;
+	long j, k;
+	long cgit, cgitmax = 25;
 
 	#pragma omp single nowait
 		rho = 0.0;
@@ -585,32 +678,32 @@ c       iv, arow, acol i
 c       v, aelt        r*8
 c---------------------------------------------------------------------*/
 static void makea(
-	int n,
-	int nz,
+	long n,
+	long nz,
 	double a[],		/* a[1:nz] */
-	int colidx[],	/* colidx[1:nz] */
-	int rowstr[],	/* rowstr[1:n+1] */
-	int nonzer,
-	int firstrow,
-	int lastrow,
-	int firstcol,
-	int lastcol,
+	long colidx[],	/* colidx[1:nz] */
+	long rowstr[],	/* rowstr[1:n+1] */
+	long nonzer,
+	long firstrow,
+	long lastrow,
+	long firstcol,
+	long lastcol,
 	double rcond,
-	int arow[],		/* arow[1:nz] */
-	int acol[],		/* acol[1:nz] */
+	long arow[],		/* arow[1:nz] */
+	long acol[],		/* acol[1:nz] */
 	double aelt[],	/* aelt[1:nz] */
 	double v[],		/* v[1:n+1] */
-	int iv[],		/* iv[1:2*n+1] */
+	long iv[],		/* iv[1:2*n+1] */
 	double shift )
 {
-	int i, nnza, iouter, ivelt, ivelt1, irow, nzv;
+	long i, nnza, iouter, ivelt, ivelt1, irow, nzv;
 
 	/*--------------------------------------------------------------------
 	c      nonzer is approximately  (int(sqrt(nnza /n)));
 	c-------------------------------------------------------------------*/
 
 	double size, ratio, scale;
-	int jcol;
+	long jcol;
 
 	size = 1.0;
 	ratio = pow(rcond, (1.0 / (double)n));
@@ -620,7 +713,7 @@ static void makea(
 	c  Initialize colidx(n+1 .. 2n) to zero.
 	c  Used by sprnvc to mark nonzero positions
 	c---------------------------------------------------------------------*/
-	#pragma omp parallel for 
+	#pragma omp parallel for private(i)
 	for (i = 1; i <= n; i++) {
 		colidx[n+i] = 0;
 	}
@@ -676,7 +769,7 @@ static void makea(
 	c       ... make the sparse matrix from list of elements with duplicates
 	c           (v and iv are used as  workspace)
 	c---------------------------------------------------------------------*/
-	sparse(a, colidx, rowstr, n, arow, acol, aelt, firstrow, lastrow, v, &(iv[0]), &(iv[n]), nnza);
+	sparse(a, colidx, rowstr, n, arow, acol, aelt, firstrow, lastrow, v, (int*)iv, &(iv[n]), nnza);
 }
 
 /*---------------------------------------------------
@@ -685,25 +778,25 @@ c       [col, row, element] tri
 c---------------------------------------------------*/
 static void sparse(
 	double a[],		/* a[1:*] */
-	int colidx[],	/* colidx[1:*] */
-	int rowstr[],	/* rowstr[1:*] */
-	int n,
-	int arow[],		/* arow[1:*] */
-	int acol[],		/* acol[1:*] */
+	long colidx[],	/* colidx[1:*] */
+	long rowstr[],	/* rowstr[1:*] */
+	long n,
+	long arow[],		/* arow[1:*] */
+	long acol[],		/* acol[1:*] */
 	double aelt[],	/* aelt[1:*] */
-	int firstrow,
-	int lastrow,
+	long firstrow,
+	long lastrow,
 	double x[],		/* x[1:n] */
 	boolean mark[],	/* mark[1:n] */
-	int nzloc[],	/* nzloc[1:n] */
-	int nnza)
+	long nzloc[],	/* nzloc[1:n] */
+	long nnza)
 /*---------------------------------------------------------------------
 c       rows range from firstrow to lastrow
 c       the rowstr pointers are defined for nrows = lastrow-firstrow+1 values
 c---------------------------------------------------------------------*/
 {
-	int nrows;
-	int i, j, jajp1, nza, k, nzrow;
+	long nrows;
+	long i, j, jajp1, nza, k, nzrow;
 	double xi;
 
 	/*--------------------------------------------------------------------
@@ -810,15 +903,15 @@ c       this corrects a performance bug found by John G. Lewis, caused by
 c       reinitialization of mark on every one of the n calls to sprnvc
 ---------------------------------------------------------------------*/
 static void sprnvc(
-	int n,
-	int nz,
+	long n,
+	long nz,
 	double v[],		/* v[1:*] */
-	int iv[],		/* iv[1:*] */
-	int nzloc[],	/* nzloc[1:n] */
-	int mark[] ) 	/* mark[1:n] */
+	long iv[],		/* iv[1:*] */
+	long nzloc[],	/* nzloc[1:n] */
+	long mark[] ) 	/* mark[1:n] */
 {
-	int nn1;
-	int nzrow, nzv, ii, i;
+	long nn1;
+	long nzrow, nzv, ii, i;
 	double vecelt, vecloc;
 
 	nzv = 0;
@@ -864,8 +957,8 @@ static void sprnvc(
 /*---------------------------------------------------------------------
 * scale a double precision number x in (0,1) by a power of 2 and chop it
 *---------------------------------------------------------------------*/
-static int icnvrt(double x, int ipwr2) {
-	return ((int)(ipwr2 * x));
+static long icnvrt(double x, long ipwr2) {
+	return ((long)(ipwr2 * x));
 }
 
 /*--------------------------------------------------------------------
@@ -873,14 +966,14 @@ c       set ith element of sparse vector (v, iv) with
 c       nzv nonzeros to val
 c-------------------------------------------------------------------*/
 static void vecset(
-	int n,
+	long n,
 	double v[],	/* v[1:*] */
-	int iv[],	/* iv[1:*] */
-	int *nzv,
-	int i,
+	long iv[],	/* iv[1:*] */
+	long *nzv,
+	long i,
 	double val)
 {
-	int k;
+	long k;
 	boolean set;
 
 	set = FALSE;
