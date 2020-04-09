@@ -36,19 +36,19 @@ c---------------------------------------------------------------------
 /* global variables */
 
 /* common /partit_size/ */
-static long naa;
-static long nzz;
-static long firstrow;
-static long lastrow;
-static long firstcol;
-static long lastcol;
+static int naa;
+static int nzz;
+static int firstrow;
+static int lastrow;
+static int firstcol;
+static int lastcol;
 
 /* common /main_int_mem/ */
-long *colidx;	/* colidx[1:NZ] 	*/
-long *rowstr;	/* rowstr[1:NA+1] 	*/
-long *iv;		/* iv[1:2*NA+1] 	*/
-long *arow;		/* arow[1:NZ] 		*/
-long *acol;		/* acol[1:NZ] 		*/
+int *colidx;	/* colidx[1:NZ] 	*/
+int *rowstr;	/* rowstr[1:NA+1] 	*/
+int *iv;		/* iv[1:2*NA+1] 	*/
+int *arow;		/* arow[1:NZ] 		*/
+int *acol;		/* acol[1:NZ] 		*/
 
 /* common /main_flt_mem/ */
 double *v;		/* v[1:NA+1] 		*/
@@ -66,20 +66,20 @@ static double amult;
 static double tran;
 
 /* function declarations */
-static void conj_grad (long colidx[], long rowstr[], double x[], 
+static void conj_grad (int colidx[], int rowstr[], double x[], 
 	double z[], double a[], double p[], double q[], double r[], 
 	double w[], double *rnorm);
-static void makea(long n, long nz, double a[], long colidx[], long rowstr[],
-	long nonzer, long firstrow, long lastrow, long firstcol,
-	long lastcol, double rcond, long arow[], long acol[],
-	double aelt[], double v[], long iv[], double shift );
-static void sparse(double a[], long colidx[], long rowstr[], long n,
-	long arow[], long acol[], double aelt[],
-	long firstrow, long lastrow,
-	double x[], boolean mark[], long nzloc[], long nnza);
-static void sprnvc(long n, long nz, double v[], long iv[], long nzloc[], long mark[]);
-static long icnvrt(double x, long ipwr2);
-static void vecset(long n, double v[], long iv[], long *nzv, long i, double val);
+static void makea(int n, int nz, double a[], int colidx[], int rowstr[],
+	int nonzer, int firstrow, int lastrow, int firstcol,
+	int lastcol, double rcond, int arow[], int acol[],
+	double aelt[], double v[], int iv[], double shift );
+static void sparse(double a[], int colidx[], int rowstr[], int n,
+	int arow[], int acol[], double aelt[],
+	int firstrow, int lastrow,
+	double x[], boolean mark[], int nzloc[], int nnza);
+static void sprnvc(int n, int nz, double v[], int iv[], int nzloc[], int mark[]);
+static int icnvrt(double x, int ipwr2);
+static void vecset(int n, double v[], int iv[], int *nzv, int i, double val);
 
 /*--------------------------------------------------------------------
       program cg
@@ -89,8 +89,8 @@ int main(int argc, char **argv)
 {
 	argo::init(10*1024*1024*1024UL);
 
-	long	i, j, k, it;
-	long nthreads;
+	int	i, j, k, it;
+	int nthreads;
 	double zeta;
 	double rnorm;
 	double norm_temp11;
@@ -108,11 +108,11 @@ int main(int argc, char **argv)
 		#endif /* _OPENMP */
 	}
 
-	colidx = new long[NZ+1];
-	rowstr = new long[NA+1+1];
-	iv = new long[2*NA+1+1];
-	arow = new long[NZ+1];
-	acol = new long[NZ+1];
+	colidx = new int[NZ+1];
+	rowstr = new int[NA+1+1];
+	iv = new int[2*NA+1+1];
+	arow = new int[NZ+1];
+	acol = new int[NZ+1];
 
 	v = new double[NA+1+1];
 	aelt = new double[NZ+1];
@@ -426,8 +426,8 @@ int main(int argc, char **argv)
 /*--------------------------------------------------------------------
 c-------------------------------------------------------------------*/
 static void conj_grad (
-	long colidx[],	/* colidx[1:nzz] */
-	long rowstr[],	/* rowstr[1:naa+1] */
+	int colidx[],	/* colidx[1:nzz] */
+	int rowstr[],	/* rowstr[1:naa+1] */
 	double x[],		/* x[*] */
 	double z[],		/* z[*] */
 	double a[],		/* a[1:nzz] */
@@ -445,8 +445,8 @@ c  CG algorithm
 c---------------------------------------------------------------------*/
 {
 	static double d, sum, rho, rho0, alpha, beta;
-	long j, k;
-	long cgit, cgitmax = 25;
+	int j, k;
+	int cgit, cgitmax = 25;
 
 	#pragma omp single nowait
 		rho = 0.0;
@@ -678,32 +678,32 @@ c       iv, arow, acol i
 c       v, aelt        r*8
 c---------------------------------------------------------------------*/
 static void makea(
-	long n,
-	long nz,
+	int n,
+	int nz,
 	double a[],		/* a[1:nz] */
-	long colidx[],	/* colidx[1:nz] */
-	long rowstr[],	/* rowstr[1:n+1] */
-	long nonzer,
-	long firstrow,
-	long lastrow,
-	long firstcol,
-	long lastcol,
+	int colidx[],	/* colidx[1:nz] */
+	int rowstr[],	/* rowstr[1:n+1] */
+	int nonzer,
+	int firstrow,
+	int lastrow,
+	int firstcol,
+	int lastcol,
 	double rcond,
-	long arow[],		/* arow[1:nz] */
-	long acol[],		/* acol[1:nz] */
+	int arow[],		/* arow[1:nz] */
+	int acol[],		/* acol[1:nz] */
 	double aelt[],	/* aelt[1:nz] */
 	double v[],		/* v[1:n+1] */
-	long iv[],		/* iv[1:2*n+1] */
+	int iv[],		/* iv[1:2*n+1] */
 	double shift )
 {
-	long i, nnza, iouter, ivelt, ivelt1, irow, nzv;
+	int i, nnza, iouter, ivelt, ivelt1, irow, nzv;
 
 	/*--------------------------------------------------------------------
 	c      nonzer is approximately  (int(sqrt(nnza /n)));
 	c-------------------------------------------------------------------*/
 
 	double size, ratio, scale;
-	long jcol;
+	int jcol;
 
 	size = 1.0;
 	ratio = pow(rcond, (1.0 / (double)n));
@@ -713,7 +713,7 @@ static void makea(
 	c  Initialize colidx(n+1 .. 2n) to zero.
 	c  Used by sprnvc to mark nonzero positions
 	c---------------------------------------------------------------------*/
-	#pragma omp parallel for private(i)
+	#pragma omp parallel for
 	for (i = 1; i <= n; i++) {
 		colidx[n+i] = 0;
 	}
@@ -769,7 +769,7 @@ static void makea(
 	c       ... make the sparse matrix from list of elements with duplicates
 	c           (v and iv are used as  workspace)
 	c---------------------------------------------------------------------*/
-	sparse(a, colidx, rowstr, n, arow, acol, aelt, firstrow, lastrow, v, (int*)iv, &(iv[n]), nnza);
+	sparse(a, colidx, rowstr, n, arow, acol, aelt, firstrow, lastrow, v, &(iv[0]), &(iv[n]), nnza);
 }
 
 /*---------------------------------------------------
@@ -778,25 +778,25 @@ c       [col, row, element] tri
 c---------------------------------------------------*/
 static void sparse(
 	double a[],		/* a[1:*] */
-	long colidx[],	/* colidx[1:*] */
-	long rowstr[],	/* rowstr[1:*] */
-	long n,
-	long arow[],		/* arow[1:*] */
-	long acol[],		/* acol[1:*] */
+	int colidx[],	/* colidx[1:*] */
+	int rowstr[],	/* rowstr[1:*] */
+	int n,
+	int arow[],		/* arow[1:*] */
+	int acol[],		/* acol[1:*] */
 	double aelt[],	/* aelt[1:*] */
-	long firstrow,
-	long lastrow,
+	int firstrow,
+	int lastrow,
 	double x[],		/* x[1:n] */
 	boolean mark[],	/* mark[1:n] */
-	long nzloc[],	/* nzloc[1:n] */
-	long nnza)
+	int nzloc[],	/* nzloc[1:n] */
+	int nnza)
 /*---------------------------------------------------------------------
 c       rows range from firstrow to lastrow
 c       the rowstr pointers are defined for nrows = lastrow-firstrow+1 values
 c---------------------------------------------------------------------*/
 {
-	long nrows;
-	long i, j, jajp1, nza, k, nzrow;
+	int nrows;
+	int i, j, jajp1, nza, k, nzrow;
 	double xi;
 
 	/*--------------------------------------------------------------------
@@ -903,15 +903,15 @@ c       this corrects a performance bug found by John G. Lewis, caused by
 c       reinitialization of mark on every one of the n calls to sprnvc
 ---------------------------------------------------------------------*/
 static void sprnvc(
-	long n,
-	long nz,
+	int n,
+	int nz,
 	double v[],		/* v[1:*] */
-	long iv[],		/* iv[1:*] */
-	long nzloc[],	/* nzloc[1:n] */
-	long mark[] ) 	/* mark[1:n] */
+	int iv[],		/* iv[1:*] */
+	int nzloc[],	/* nzloc[1:n] */
+	int mark[] ) 	/* mark[1:n] */
 {
-	long nn1;
-	long nzrow, nzv, ii, i;
+	int nn1;
+	int nzrow, nzv, ii, i;
 	double vecelt, vecloc;
 
 	nzv = 0;
@@ -957,8 +957,8 @@ static void sprnvc(
 /*---------------------------------------------------------------------
 * scale a double precision number x in (0,1) by a power of 2 and chop it
 *---------------------------------------------------------------------*/
-static long icnvrt(double x, long ipwr2) {
-	return ((long)(ipwr2 * x));
+static int icnvrt(double x, int ipwr2) {
+	return ((int)(ipwr2 * x));
 }
 
 /*--------------------------------------------------------------------
@@ -966,14 +966,14 @@ c       set ith element of sparse vector (v, iv) with
 c       nzv nonzeros to val
 c-------------------------------------------------------------------*/
 static void vecset(
-	long n,
+	int n,
 	double v[],	/* v[1:*] */
-	long iv[],	/* iv[1:*] */
-	long *nzv,
-	long i,
+	int iv[],	/* iv[1:*] */
+	int *nzv,
+	int i,
 	double val)
 {
-	long k;
+	int k;
 	boolean set;
 
 	set = FALSE;
