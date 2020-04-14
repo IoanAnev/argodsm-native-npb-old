@@ -40,6 +40,8 @@ static int ilog2(int n);
 static void checksum(int i, dcomplex *u1, int d[3]);
 static void verify (int d1, int d2, int d3, int nt, boolean *verified, char *class_npb);
 
+#define at(x, y, z) (((x) * NY * NX) + ((y) * NX) + (z))
+
 /*--------------------------------------------------------------------
 c FT benchmark
 c-------------------------------------------------------------------*/
