@@ -54,7 +54,10 @@ int *acol;		/* acol[1:NZ] 		*/
 double *v;		/* v[1:NA+1] 		*/
 double *aelt;	/* aelt[1:NZ] 		*/
 double *a;		/* a[1:NZ] */
-//static double x[NA+2+1];	/* x[1:NA+2] */
+
+/* common /global_mem/ */
+double *gnorm_temps;
+double *x;		/* x[1:NA+2]		*/
 double *z;		/* z[1:NA+2] 		*/
 double *p;		/* p[1:NA+2] 		*/
 double *q;		/* q[1:NA+2] 		*/
@@ -64,6 +67,11 @@ double *w;		/* w[1:NA+2] 		*/
 /* common /urando/ */
 static double amult;
 static double tran;
+
+/* common /rank,tasks,threads/ */
+int workrank;
+int numtasks;
+int nthreads;
 
 /* function declarations */
 static void conj_grad (int colidx[], int rowstr[], double x[], 
@@ -87,10 +95,9 @@ static void vecset(int n, double v[], int iv[], int *nzv, int i, double val);
 
 int main(int argc, char **argv)
 {
-	argo::init(10*1024*1024*1024UL);
+	argo::init(20*1024*1024*1024UL);
 
 	int	i, j, k, it;
-	int nthreads;
 	double zeta;
 	double rnorm;
 	double norm_temp11;
@@ -117,17 +124,17 @@ int main(int argc, char **argv)
 	v = new double[NA+1+1];
 	aelt = new double[NZ+1];
 	a = new double[NZ+1];
-	z = new double[NA+2+1];
-	p = new double[NA+2+1];
-	q = new double[NA+2+1];
-	r = new double[NA+2+1];
-	w = new double[NA+2+1];
 
-	int workrank = argo::node_id();
-    int numtasks = argo::number_of_nodes();
+	workrank = argo::node_id();
+    numtasks = argo::number_of_nodes();
 
-	double *gnorm_temps = argo::conew_array<double>(2*numtasks);
-	double *x = argo::conew_array<double>(NA+2+1);
+	gnorm_temps = argo::conew_array<double>(2*numtasks);
+	x = argo::conew_array<double>(NA+2+1);
+	z = argo::conew_array<double>(NA+2+1);
+	p = argo::conew_array<double>(NA+2+1);
+	q = argo::conew_array<double>(NA+2+1);
+	r = argo::conew_array<double>(NA+2+1);
+	w = argo::conew_array<double>(NA+2+1);
 
 	firstrow = 1;
 	lastrow  = NA;
@@ -409,14 +416,14 @@ int main(int argc, char **argv)
 	delete[] v;
 	delete[] aelt;
 	delete[] a;
-	delete[] z;
-	delete[] p;
-	delete[] q;
-	delete[] r;
-	delete[] w;
 
 	argo::codelete_array(gnorm_temps);
 	argo::codelete_array(x);
+	argo::codelete_array(z);
+	argo::codelete_array(p);
+	argo::codelete_array(q);
+	argo::codelete_array(r);
+	argo::codelete_array(w);
 
 	argo::finalize();
 
@@ -448,6 +455,18 @@ c---------------------------------------------------------------------*/
 	int j, k;
 	int cgit, cgitmax = 25;
 
+	static int chunk_naa = (naa+1) / numtasks;
+    static int beg_naa = 1 + workrank * chunk_naa;
+    static int end_naa = (workrank != numtasks - 1) ? workrank * chunk_naa + chunk_naa : naa+1;
+
+	static int chunk_row = (lastrow-firstrow+1) / numtasks;
+	static int beg_row = 1 + workrank * chunk_row;
+	static int end_row = (workrank != numtasks - 1) ? workrank * chunk_row + chunk_row : lastrow-firstrow+1;
+
+	static int chunk_col = (lastcol-firstcol+1) / numtasks;
+    static int beg_col = 1 + workrank * chunk_col;
+    static int end_col = (workrank != numtasks - 1) ? workrank * chunk_col + chunk_col : lastcol-firstcol+1;
+
 	#pragma omp single nowait
 		rho = 0.0;
 
@@ -455,7 +474,7 @@ c---------------------------------------------------------------------*/
 	c  Initialize the CG algorithm:
 	c-------------------------------------------------------------------*/
 	#pragma omp for nowait
-	    for (j = 1; j <= naa+1; j++) {
+	    for (j = beg_naa; j <= end_naa; j++) {
 			q[j] = 0.0;
 			z[j] = 0.0;
 			r[j] = x[j];
@@ -466,11 +485,21 @@ c---------------------------------------------------------------------*/
 	/*--------------------------------------------------------------------
 	c  rho = r.r
 	c  Now, obtain the norm of r: First, sum squares of r elements locally...
-	c-------------------------------------------------------------------*/
+	c-------------------------------------------------------------------*/	
 	#pragma omp for reduction(+:rho)
-	for (j = 1; j <= lastcol-firstcol+1; j++) {
+	for (j = beg_col; j <= end_col; j++) {
 		rho = rho + x[j]*x[j];
 	}
+
+	#pragma omp master
+	gnorm_temps[workrank] = rho;
+
+	argo::barrier(nthreads);
+
+	#pragma omp single
+	for (j = 0; j < numtasks; j++)
+		if (j != workrank)
+			rho += gnorm_temps[j];
 
 	/*--------------------------------------------------------------------
 	c---->
@@ -498,15 +527,19 @@ c---------------------------------------------------------------------*/
 		C        on the Cray t3d - overall speed of code is 1.5 times faster.
 		*/
 
+		argo::barrier(nthreads);
+
 		/* rolled version */      
 		#pragma omp for private(sum,k)
-		for (j = 1; j <= lastrow-firstrow+1; j++) {
+		for (j = beg_row; j <= end_row; j++) {
 			sum = 0.0;
 			for (k = rowstr[j]; k < rowstr[j+1]; k++) {
 				sum = sum + a[k]*p[colidx[k]];
 		    }
 			w[j] = sum;
 		}
+
+		argo::barrier(nthreads);
 		
 	/* unrolled-by-two version
 		#pragma omp for private(i,k)
@@ -550,15 +583,15 @@ c---------------------------------------------------------------------*/
 	*/
 		
 		#pragma omp for
-		for (j = 1; j <= lastcol-firstcol+1; j++) {
+		for (j = beg_col; j <= end_col; j++) {
 			q[j] = w[j];
 		}
-
+	
 		/*--------------------------------------------------------------------
 		c  Clear w for reuse...
 		c-------------------------------------------------------------------*/
 		#pragma omp for	nowait
-		for (j = 1; j <= lastcol-firstcol+1; j++) {
+		for (j = beg_col; j <= end_col; j++) {
 			w[j] = 0.0;
 		}
 
@@ -566,9 +599,19 @@ c---------------------------------------------------------------------*/
 		c  Obtain p.q
 		c-------------------------------------------------------------------*/
 		#pragma omp for reduction(+:d)
-		for (j = 1; j <= lastcol-firstcol+1; j++) {
+		for (j = beg_col; j <= end_col; j++) {
 			d = d + p[j]*q[j];
 		}
+
+		#pragma omp master
+		gnorm_temps[workrank] = d;
+
+		argo::barrier(nthreads);
+
+		#pragma omp single
+		for (j = 0; j < numtasks; j++)
+			if (j != workrank)
+				d += gnorm_temps[j];
 
 		/*--------------------------------------------------------------------
 		c  Obtain alpha = rho / (p.q)
@@ -586,19 +629,31 @@ c---------------------------------------------------------------------*/
 		c  and    r = r - alpha*q
 		c---------------------------------------------------------------------*/
 		#pragma omp for
-		for (j = 1; j <= lastcol-firstcol+1; j++) {
+		for (j = beg_col; j <= end_col; j++) {
 			z[j] = z[j] + alpha*p[j];
 			r[j] = r[j] - alpha*q[j];
 		}
+
+		argo::barrier(nthreads);
             
 		/*---------------------------------------------------------------------
 		c  rho = r.r
 		c  Now, obtain the norm of r: First, sum squares of r elements locally...
 		c---------------------------------------------------------------------*/
 		#pragma omp for reduction(+:rho)	
-		for (j = 1; j <= lastcol-firstcol+1; j++) {
+		for (j = beg_col; j <= end_col; j++) {
 			rho = rho + r[j]*r[j];
 		}
+
+		#pragma omp master
+		gnorm_temps[workrank] = rho;
+
+		argo::barrier(nthreads);
+
+		#pragma omp single
+		for (j = 0; j < numtasks; j++)
+			if (j != workrank)
+				rho += gnorm_temps[j];
 
 		/*--------------------------------------------------------------------
 		c  Obtain beta:
@@ -610,7 +665,7 @@ c---------------------------------------------------------------------*/
 		c  p = r + beta*p
 		c-------------------------------------------------------------------*/
 		#pragma omp for
-		for (j = 1; j <= lastcol-firstcol+1; j++) {
+		for (j = beg_col; j <= end_col; j++) {
 			p[j] = r[j] + beta*p[j];
 		}
 	} /* end of do cgit=1,cgitmax */
@@ -624,7 +679,7 @@ c---------------------------------------------------------------------*/
 		sum = 0.0;
     
 	#pragma omp for private(d, k)
-	for (j = 1; j <= lastrow-firstrow+1; j++) {
+	for (j = beg_row; j <= end_row; j++) {
 		d = 0.0;
 		for (k = rowstr[j]; k <= rowstr[j+1]-1; k++) {
 			d = d + a[k]*z[colidx[k]];
@@ -632,8 +687,10 @@ c---------------------------------------------------------------------*/
 		w[j] = d;
 	}
 
+	argo::barrier(nthreads);
+
 	#pragma omp for
-	for (j = 1; j <= lastcol-firstcol+1; j++) {
+	for (j = beg_col; j <= end_col; j++) {
 		r[j] = w[j];
 	}
 
@@ -641,10 +698,20 @@ c---------------------------------------------------------------------*/
 	c  At this point, r contains A.z
 	c-------------------------------------------------------------------*/
 	#pragma omp for reduction(+:sum) private(d)
-	for (j = 1; j <= lastcol-firstcol+1; j++) {
+	for (j = beg_col; j <= end_col; j++) {
 		d = x[j] - r[j];
 		sum = sum + d*d;
 	}
+
+	#pragma omp single nowait
+		gnorm_temps[workrank] = sum;
+
+	argo::barrier(nthreads);
+
+	#pragma omp single
+	for (j = 0; j < numtasks; j++)
+		if (j != workrank)
+			sum += gnorm_temps[j];
 
 	#pragma omp single
 	{
