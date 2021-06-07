@@ -913,12 +913,10 @@ static void checksum(int i, dcomplex *u1, int d[3]) {
         isum[workrank].real += chk.real;
         isum[workrank].imag += chk.imag;
     }
-    #pragma omp barrier
+    argo::barrier(nthreads);
 
     #pragma omp master
     {
-        argo::barrier();
-        
         if (workrank == 0) {
             for (j = 0; j < numtasks; j++) {
                 sums[i].real += isum[j].real;
