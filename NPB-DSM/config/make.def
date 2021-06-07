@@ -25,17 +25,29 @@
 #---------------------------------------------------------------------------
 
 #---------------------------------------------------------------------------
+# This is the ArgoDSM installation directory
+#---------------------------------------------------------------------------
+ARGO_INSTALL_DIRECTORY=${HOME}/argodsm/install
+
+#---------------------------------------------------------------------------
+# This is the include and lib ArgoDSM flags
+#---------------------------------------------------------------------------
+
+IDFLAGS = -I${ARGO_INSTALL_DIRECTORY}/include/argo -I${ARGO_INSTALL_DIRECTORY}/include/argo/synchronization
+LDFLAGS = -L${ARGO_INSTALL_DIRECTORY}/lib -Wl,-rpath=${ARGO_INSTALL_DIRECTORY}/lib
+
+#---------------------------------------------------------------------------
 # This is the C compiler used for OpenMP programs
 #---------------------------------------------------------------------------
-CC = g++ -std=c++14
-#gcc #cc
+CC = mpic++ -std=c++14 $(IDFLAGS) $(LDFLAGS)
+
 # This links C programs; usually the same as ${CC}
 CLINK	= $(CC)
 
 #---------------------------------------------------------------------------
 # These macros are passed to the linker 
 #---------------------------------------------------------------------------
-C_LIB  = -lm
+C_LIB  = -lm -largo -largobackend-mpi -lnuma -lrt
 
 #---------------------------------------------------------------------------
 # These macros are passed to the compiler 
@@ -45,14 +57,14 @@ C_INC = -I../common
 #---------------------------------------------------------------------------
 # Global *compile time* flags for C programs
 #---------------------------------------------------------------------------
-CFLAGS	= -O3 -fopenmp
+CFLAGS	= -O3 -fopenmp -mcmodel=medium
 # CFLAGS = -g
 
 #---------------------------------------------------------------------------
 # Global *link time* flags. Flags for increasing maximum executable 
 # size usually go here. 
 #---------------------------------------------------------------------------
-CLINKFLAGS = -O3 -fopenmp
+CLINKFLAGS = -O3 -fopenmp -mcmodel=medium
 
 
 #---------------------------------------------------------------------------
@@ -62,7 +74,7 @@ CLINKFLAGS = -O3 -fopenmp
 # this compiler go here also; typically there are few flags required; hence 
 # there are no separate macros provided for such flags.
 #---------------------------------------------------------------------------
-UCC	= cc
+UCC	= mpic++ -fopenmp
 
 
 #---------------------------------------------------------------------------
