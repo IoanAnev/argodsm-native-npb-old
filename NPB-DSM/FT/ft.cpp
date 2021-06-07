@@ -189,6 +189,7 @@ int main(int argc, char **argv) {
             }
         }
     }
+    argo::barrier();
 
     if (workrank == 0)
     {
